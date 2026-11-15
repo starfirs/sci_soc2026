@@ -167,6 +167,28 @@ step:      0   1   2   3    4    5    6
 - 同一天重复运行 `nightly` 会替换该日期的缓存，不会重复累积。
 - LLM 出题失败时写入本地模板卡片，保证第二天仍有题可复习。
 
+### 2.6 节点编辑
+
+用户可以通过命令行或 Python API 主动修改记忆节点：
+
+```bash
+python -m backend.node_edit --list
+python -m backend.node_edit --id 3 --show
+python -m backend.node_edit --id 3 --title "新标题" --content "新内容"
+python -m backend.node_edit --id 3 --importance 0.9 --type concept
+python -m backend.node_edit --id 3 --instruction "把这条记忆改得更简洁"
+python -m backend.node_edit --id 3 --delete
+```
+
+- 直接修改：标题、内容、类型、重要度、状态。
+- LLM 修改：用户给自然语言要求，LLM 返回完整替换节点；节点和指令都会先
+  本地脱敏，占位符保持不变。
+- 修改标题/内容/类型会让该节点的 `daily_card` 缓存失效。
+- 重要度 < 0.3 或状态非 `active` 会清除 `due_at`，移出复习。
+- 删除节点会级联删除边、复习记录和缓存卡片；`daily_summary.node_ids` 同步清理。
+- Python 接口：`backend.node_edit.edit_node` / `update_node` /
+  `edit_node_with_llm`。
+
 ---
 
 ## 3. 总体架构
@@ -447,6 +469,7 @@ submit_feedback(node_id, card_type, feedback)
 | `setup_local_ocr.py` | 私有引擎安装 | 从 Umi 插件目录复制到 `vendor/ocr_engines/`；`--check` |
 | `umi_ocr.py` | 可选 Umi 客户端 | HTTP `/api/ocr`；引擎检测/选择；mkldnn 读取与写入；CLI |
 | `audio_capture.py` | 录音链路 | `soundcard` 麦克风/回环；Vosk；`CaptureWorker`；`transcribe_wav`；CLI |
+| `node_edit.py` | 节点编辑接口 | `update_node`；`edit_node_with_llm`；`edit_node`；`node_detail`；CLI |
 | `llm.py` | 云端 LLM | `DeepSeekClient`（stdlib `urllib` HTTP）；`LLMError`；`parse_json` |
 | `memory_graph.py` | 旧原型（不要扩展） | networkx + JSON，schema 与设计不一致 |
 | `test.py` | 旧原型脚本（不要扩展） | 旧版演示 |
@@ -463,12 +486,13 @@ submit_feedback(node_id, card_type, feedback)
 | `test_memory.py` | 抽取/决策/建图/合并/自然复习 |
 | `test_pipeline.py` | 手动文本入库、映射持久化 |
 | `test_scheduler.py` | 到期选择、优先级、卡片缓存、部分缓存、LLM 补题、重要度、节点删除 |
+| `test_node_edit.py` | 直接编辑、脱敏、LLM 改写、缓存失效、节点详情 |
 | `test_pet_controller.py` | 桌宠状态机、重要度与删除当前卡片 |
 | `test_nightly.py` | 夜间整合 + 次日卡片、离线兜底、幂等 |
 | `test_screen_capture.py` | 归一化、敏感行、排除规则、屏幕入库/去重 |
 | `test_audio_capture.py` | 录音文本归一化、脱敏、跨音源去重、dry-run |
 
-当前共 **96** 个测试，全部使用 FakeLLM / 假 Umi 服务 / 临时数据库，不访问网络。
+当前共 **102** 个测试，全部使用 FakeLLM / 假 Umi 服务 / 临时数据库，不访问网络。
 
 ### 6.3 文档与配置
 
@@ -581,7 +605,7 @@ python -m pytest -q
 - 录音：TTS WAV → Vosk 转写 → 脱敏 → `segment(source='microphone')`
   → `nightly` 建节点 → 生成卡片。
 - 桌宠：缓存完整时约 12 ms 加载，无云端请求；缓存缺失时本地模板先显示。
-- 测试：**96 passed**。
+- 测试：**102 passed**。
 
 ---
 
@@ -596,9 +620,10 @@ python -m pytest -q
 - 次日卡片预生成（`daily_card`）
 - 间隔复习、三按钮反馈、`review_log`
 - 重要度标记（很重要/重要/一般/不重要）与“不重要”节点删除
+- 节点编辑接口：直接字段修改 + LLM 自然语言改写
 - PyQt6 桌宠（缓存优先、后台补题、状态表情）
 - 本地脱敏、占位符映射、敏感行丢弃
-- 96 个离线测试
+- 102 个离线测试
 
 ### 9.2 未实现 / 后续路线
 

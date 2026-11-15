@@ -14,6 +14,7 @@
 - 屏幕读取基础版：读取前台窗口，项目私有 PaddleOCR-json / RapidOCR-json（Paddle 支持 MKL-DNN），脱敏后写入 `segment`
 - 录音链路基础版：麦克风 + 系统声音回环，Vosk 本地转写，脱敏后写入 `segment`
 - 本地 SQLite 存储、占位符映射、复习日志
+- 节点查看/编辑：直接改标题、内容、类型、重要度、状态，或让 LLM 按自然语言改写
 
 还没实现：
 
@@ -462,7 +463,51 @@ LLM 出题失败时会写入本地模板卡片，并在输出的 `errors` 里给
 python -m pytest -q
 ```
 
-测试使用假 LLM / 假 Umi-OCR 服务 / 临时引擎目录，不消耗 API。当前 96 个测试。
+测试使用假 LLM / 假 Umi-OCR 服务 / 临时引擎目录，不消耗 API。当前 102 个测试。
+
+### 8.7 节点编辑
+
+```bash
+# 查看节点列表
+python -m backend.node_edit --list
+
+# 查看某个节点的详细信息（含边）
+python -m backend.node_edit --id 3 --show
+
+# 直接修改字段
+python -m backend.node_edit --id 3 --title "新标题" --content "新内容"
+python -m backend.node_edit --id 3 --importance 0.9 --type concept
+python -m backend.node_edit --id 3 --status archived
+
+# 从文件读取长内容
+python -m backend.node_edit --id 3 --content-file notes.txt
+
+# LLM 按自然语言改写
+python -m backend.node_edit --id 3 --instruction "把这条记忆改得更简洁，并补充适用条件"
+
+# 删除节点（级联删除边、复习记录和缓存卡片）
+python -m backend.node_edit --id 3 --delete
+```
+
+Python 接口：
+
+```python
+from backend.node_edit import edit_node, update_node
+
+# 直接修改
+update_node(conn, 3, title="新标题", content="新内容")
+
+# 统一入口；有 instruction 时走 LLM
+edit_node(conn, 3, instruction="改得更简洁", llm=client)
+```
+
+规则：
+
+- 直接修改的标题/内容也会先经过 `scrub.mask`，真实姓名/电话不会写进节点。
+- LLM 只看到脱敏后的节点和指令；返回的占位符保持不变。
+- 修改标题/内容/类型会让该节点的 `daily_card` 缓存失效，下次重新出题。
+- 重要度低于 0.3 或状态不是 `active` 时自动移出复习。
+- 删除节点会级联删除相关边、复习记录和缓存卡片，不可恢复。
 
 ## 9. 数据与隐私
 
@@ -612,8 +657,9 @@ backend/
   setup_local_ocr.py 把 Umi 插件复制为项目私有引擎
   umi_ocr.py         Umi-OCR HTTP 客户端、引擎选择、mkldnn 检查
   audio_capture.py   麦克风/系统声音 + Vosk 转写
+  node_edit.py       节点查看、直接编辑、LLM 自然语言改写
   llm.py             DeepSeek HTTP 客户端
-tests/               96 个测试，使用 FakeLLM / 假 Umi 服务
+tests/               102 个测试，使用 FakeLLM / 假 Umi 服务
 data/                本地数据库、屏幕排除规则（gitignored）
 models/              本地 Vosk 模型（gitignored）
 ```

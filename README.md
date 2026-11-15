@@ -10,6 +10,7 @@ AI 记忆增强伙伴（课程项目）。完整设计见 `AI 记忆增强伙伴
 - **里程碑 1（已实现）**：手动粘贴文字 → 本地脱敏 → DeepSeek 整合 → 写入 SQLite 记忆图。
 - **里程碑 2 核心（已实现）**：复习队列、云端出题、三按钮反馈、间隔调度与 `review_log`。
 - **重要度与删除（已实现）**：复习时可标记“很重要 / 重要 / 一般 / 不重要”；标为不重要会移出复习，并可确认删除该记忆。
+- **节点编辑接口（已实现）**：可直接修改节点的标题/内容/类型/重要度/状态，也可以让 LLM 按自然语言要求改写；输入输出都经过本地脱敏。
 - **次日卡片预生成（已实现）**：夜间整合未处理片段并把明天的题写入本地 `daily_card`，桌宠次日直接读缓存。
 - **屏幕读取基础版（已实现）**：默认只读当前前台窗口，项目私有 PaddleOCR-json/RapidOCR-json 引擎（Paddle 启用 MKL-DNN）、变化检测、敏感行丢弃，脱敏后写入 `segment(source='screen')`；不需要用户运行 Umi-OCR。
 - **录音链路基础版（已实现）**：麦克风 + 系统声音回环 → Vosk 本地转写 → 脱敏 → 写入 `segment(source='microphone'/'system')`，音频只在内存中。
@@ -49,6 +50,12 @@ python -m backend.pipeline --file notes.txt --date 2026-11-10 --name 张三
 
 # 查看当前记忆图
 python -m backend.pipeline --list-nodes
+
+# 查看/编辑记忆节点
+python -m backend.node_edit --list
+python -m backend.node_edit --id 3 --show
+python -m backend.node_edit --id 3 --title "新标题" --content "新内容"
+python -m backend.node_edit --id 3 --instruction "把这条记忆改得更简洁"
 
 # 今日复习：先自己想，按回车看答案，再按 1/2/3 反馈
 python -m backend.review_cli
