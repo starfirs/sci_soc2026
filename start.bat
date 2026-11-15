@@ -74,11 +74,7 @@ start "" notepad "%~dp0USAGE.md"
 goto menu
 
 :import
-set "IMPORT_FILE="
-set /p IMPORT_FILE=File path (pdf/docx/txt/md):
-if not "%IMPORT_FILE%"=="" (
-    "%PY%" -m backend.import_doc "%IMPORT_FILE%"
-)
+"%PY%" -m backend.import_doc --pick
 pause
 goto menu
 

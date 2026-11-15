@@ -58,8 +58,9 @@ python -m backend.node_edit --id 3 --show
 python -m backend.node_edit --id 3 --title "新标题" --content "新内容"
 python -m backend.node_edit --id 3 --instruction "把这条记忆改得更简洁"
 
-# 导入 PDF/DOCX/TXT/Markdown 制作记忆
-python -m backend.import_doc notes.pdf
+# 导入 PDF/DOCX/TXT/Markdown 制作记忆（文件可在任意位置）
+python -m backend.import_doc --pick              # 打开文件选择器
+python -m backend.import_doc "D:/资料/讲义.pdf"
 python -m backend.import_doc notes.pdf --defer   # 只落库，等 nightly 整合
 
 # 今日复习：先自己想，按回车看答案，再按 1/2/3 反馈
@@ -112,7 +113,7 @@ python -m pytest -q
 4. 启动录音
 5. 运行测试
 6. 打开使用说明
-7. 导入 PDF/DOCX/TXT/Markdown
+7. 导入 PDF/DOCX/TXT/Markdown（文件选择器，可选任意位置）
 
 只想快速看效果，直接双击 `start_demo.bat`：它会重建
 `data/demo_start.db`（不会碰真实库）并打开桌宠。

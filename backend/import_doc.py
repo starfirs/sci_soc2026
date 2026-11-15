@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 import zipfile
 from dataclasses import dataclass, field
 from datetime import date as Date
@@ -222,12 +223,33 @@ def import_file(
     return report
 
 
+def pick_files() -> list[Path]:
+    """打开系统文件选择器，可从任意目录选择文件。"""
+    from PyQt6.QtWidgets import QApplication, QFileDialog
+
+    app = QApplication.instance() or QApplication(sys.argv[:1])
+    paths, _ = QFileDialog.getOpenFileNames(
+        None,
+        "选择要导入记忆的文件",
+        "",
+        "文档 (*.pdf *.docx *.txt *.md *.markdown);;所有文件 (*.*)",
+    )
+    return [Path(path) for path in paths]
+
+
 def main(argv: list[str] | None = None) -> int:
     configure_stdio()
     parser = argparse.ArgumentParser(
         description="AI 记忆增强伙伴 - 导入 PDF/DOCX/TXT/Markdown"
     )
-    parser.add_argument("files", nargs="+", type=Path)
+    parser.add_argument(
+        "files", nargs="*", type=Path,
+        help="任意位置的 PDF/DOCX/TXT/MD 路径",
+    )
+    parser.add_argument(
+        "--pick", action="store_true",
+        help="打开文件选择器，从任意目录选择文件",
+    )
     parser.add_argument("--db", help="数据库路径，默认 data/memory.db")
     parser.add_argument("--date", help="归入哪一天，默认今天")
     parser.add_argument(
@@ -251,8 +273,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    files = list(args.files)
+    if args.pick:
+        files.extend(pick_files())
+    if not files:
+        print("没有选择文件。")
+        return 1
+
     total_chunks = 0
-    for path in args.files:
+    for path in files:
         try:
             text = extract_text(path)
             chunks = split_text(text, args.max_chars)

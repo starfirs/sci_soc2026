@@ -145,7 +145,7 @@ print([m['id'] for m in json.load(urllib.request.urlopen(req))['data']])
 4. 启动录音
 5. 运行测试
 6. 打开本说明
-7. 导入 PDF/DOCX/TXT/Markdown
+7. 导入 PDF/DOCX/TXT/Markdown（打开文件选择器，可选任意位置）
 
 只想立即看桌宠效果，双击 `start_demo.bat`。它只重建
 `data/demo_start.db`，不会修改真实 `data/memory.db`。
@@ -540,8 +540,12 @@ edit_node(conn, 3, instruction="改得更简洁", llm=client)
 支持 `.pdf`、`.docx`、`.txt`、`.md` / `.markdown`：
 
 ```bash
-# 提取文本 → 脱敏 → 整合成记忆节点
+# 打开文件选择器，从任意目录选择（推荐）
+python -m backend.import_doc --pick
+
+# 直接传绝对/相对路径，文件可以在任意位置
 python -m backend.import_doc notes.pdf
+python -m backend.import_doc "D:/资料/课程讲义.pdf"
 python -m backend.import_doc slides.docx notes.txt --date 2026-11-15
 
 # 只提取和切块，不写库、不调用 LLM
@@ -551,6 +555,9 @@ python -m backend.import_doc notes.pdf --dry-run --show-text
 # 只写入 segment，交给 nightly 整合（适合长文档/稍后处理）
 python -m backend.import_doc notes.pdf --defer
 ```
+
+PDF 不需要复制到项目目录：路径可以是任意绝对路径或相对路径，
+`--pick` 会打开系统文件选择器；原文件只被读取，不会移动或复制。
 
 规则：
 

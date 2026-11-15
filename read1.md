@@ -199,6 +199,7 @@ python -m backend.node_edit --id 3 --delete
   排除规则、本地 OCR、脱敏后写入 `segment(source='screen')`。
 - 右键桌宠也有“手动截图”菜单项；快捷键被占用时仍可用菜单。
 - 支持导入 `.pdf`、`.docx`、`.txt`、`.md`：
+  - 文件可以位于任意目录；`--pick` 打开系统文件选择器。
   - 文本 PDF 用 `pypdf` 提取；扫描版 PDF 没有文本层会提示先 OCR。
   - 文档按约 4000 字符切块，每块走脱敏 → segment → 整合。
   - `--defer` 只写入 segment，交给 `nightly`。
