@@ -34,10 +34,12 @@ echo   4. Start audio capture (Ctrl+C to stop)
 echo   5. Run tests
 echo   6. Open USAGE.md
 echo   7. Import PDF/DOCX/TXT/MD
+echo   8. List / view memory nodes
+echo   9. Run nightly (consolidate + next cards)
 echo   0. Exit
 echo.
 set "CHOICE="
-set /p CHOICE=Select [0-7]:
+set /p CHOICE=Select [0-9]:
 if "%CHOICE%"=="1" goto pet
 if "%CHOICE%"=="2" goto demo
 if "%CHOICE%"=="3" goto screen
@@ -45,6 +47,8 @@ if "%CHOICE%"=="4" goto audio
 if "%CHOICE%"=="5" goto test
 if "%CHOICE%"=="6" goto docs
 if "%CHOICE%"=="7" goto import
+if "%CHOICE%"=="8" goto memories
+if "%CHOICE%"=="9" goto nightly
 if "%CHOICE%"=="0" goto end
 goto menu
 
@@ -75,6 +79,21 @@ goto menu
 
 :import
 "%PY%" -m backend.import_doc --pick
+pause
+goto menu
+
+:memories
+"%PY%" -m backend.node_edit --list
+set "NODE_ID="
+set /p NODE_ID=Node id to view (empty to skip):
+if not "%NODE_ID%"=="" (
+    "%PY%" -m backend.node_edit --id %NODE_ID% --show
+)
+pause
+goto menu
+
+:nightly
+"%PY%" -m backend.nightly
 pause
 goto menu
 

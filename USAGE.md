@@ -146,6 +146,8 @@ print([m['id'] for m in json.load(urllib.request.urlopen(req))['data']])
 5. 运行测试
 6. 打开本说明
 7. 导入 PDF/DOCX/TXT/Markdown（打开文件选择器，可选任意位置）
+8. 查看记忆节点列表，并可输入 id 查看详情
+9. 运行 nightly：整合未处理片段并生成次日卡片
 
 只想立即看桌宠效果，双击 `start_demo.bat`。它只重建
 `data/demo_start.db`，不会修改真实 `data/memory.db`。
@@ -567,6 +569,10 @@ PDF 不需要复制到项目目录：路径可以是任意绝对路径或相对�
 - 文本 PDF 用 `pypdf` 提取；扫描版 PDF 没有文本层，会提示先 OCR。
 - DOCX 直接读 `word/document.xml`，不需要额外依赖。
 - 导入的文本同样经过手机号/邮箱/身份证/姓名脱敏。
+- 导入完成会打印本次涉及的节点 id；用
+  `python -m backend.node_edit --id <id> --show` 查看详情。
+- 如果用了 `--defer`，或来源是手动截图/屏幕采集，需要先运行
+  `python -m backend.nightly` 才会生成节点。
 
 Python 接口：
 

@@ -42,6 +42,7 @@ class ImportReport:
     ignored: int = 0
     superseded: int = 0
     deferred: bool = False
+    node_ids: list[int] = field(default_factory=list)
     reports: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -56,6 +57,7 @@ class ImportReport:
             "ignored": self.ignored,
             "superseded": self.superseded,
             "deferred": self.deferred,
+            "node_ids": self.node_ids,
         }
 
 
@@ -217,6 +219,7 @@ def import_file(
             report.linked += chunk_report.linked
             report.ignored += chunk_report.ignored
             report.superseded += chunk_report.superseded
+            report.node_ids.extend(chunk_report.node_ids)
             report.reports.append(chunk_report.to_dict())
         if progress is not None:
             progress(index, len(chunks), chunk_report)
@@ -345,6 +348,12 @@ def main(argv: list[str] | None = None) -> int:
                 else ""
             )
         )
+        if report.node_ids:
+            ids = sorted(set(report.node_ids))
+            print(f"  涉及节点 id：{ids}")
+            print(
+                "  查看：python -m backend.node_edit --id <id> --show"
+            )
     print(f"\n共处理 {total_chunks} 块。")
     return 0
 

@@ -114,6 +114,8 @@ python -m pytest -q
 5. 运行测试
 6. 打开使用说明
 7. 导入 PDF/DOCX/TXT/Markdown（文件选择器，可选任意位置）
+8. 查看记忆节点（可继续输入 id 看详情）
+9. 运行 nightly（整合片段 + 生成次日卡片）
 
 只想快速看效果，直接双击 `start_demo.bat`：它会重建
 `data/demo_start.db`（不会碰真实库）并打开桌宠。
