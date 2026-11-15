@@ -9,24 +9,40 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import date as Date
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont, QGuiApplication, QPainter, QPen, QRadialGradient
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMenu,
     QMessageBox,
     QPushButton,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from .config import configure_stdio, get_db_path
+from .config import configure_stdio, get_db_path, get_llm_config
 from .db import connect
+from .llm import DeepSeekClient
+from .node_edit import (
+    EDITABLE_TYPES,
+    NodeEditResult,
+    edit_node_with_llm,
+    get_node,
+    update_node,
+)
 from .pet_controller import PetController
+from .scheduler import IMPORTANCE_VALUES, get_today_queue
 
 CARD_TYPE_LABELS = {
     "clue": "线索回忆",
@@ -46,6 +62,23 @@ IMPORTANCE_LABELS = {
     "normal": "一般",
     "low": "不重要",
 }
+TYPE_LABELS = {
+    "fact": "事实",
+    "event": "事件",
+    "person": "人物",
+    "concept": "概念",
+    "todo": "待办",
+}
+
+
+def importance_key(importance: float) -> str:
+    if importance >= 0.9:
+        return "very_high"
+    if importance >= 0.7:
+        return "high"
+    if importance >= 0.3:
+        return "normal"
+    return "low"
 
 
 class CardWorker(QThread):
@@ -93,6 +126,249 @@ class CardWorker(QThread):
             self.loaded.emit([], f"加载失败：{exc}")
         finally:
             conn.close()
+
+
+class EditWorker(QThread):
+    """在后台调用 LLM 改写当前节点，避免卡住桌宠界面。"""
+
+    done = pyqtSignal(object, str)
+
+    def __init__(self, db_path, node_id: int, instruction: str):
+        super().__init__()
+        self.db_path = db_path
+        self.node_id = node_id
+        self.instruction = instruction
+
+    def run(self) -> None:
+        conn = connect(self.db_path)
+        try:
+            llm = DeepSeekClient(get_llm_config())
+            result = edit_node_with_llm(
+                conn, llm, self.node_id, self.instruction
+            )
+            self.done.emit(result, "")
+        except Exception as exc:
+            self.done.emit(None, str(exc))
+        finally:
+            conn.close()
+
+
+class EditNodeDialog(QDialog):
+    """修改当前记忆节点：直接编辑字段，或让 LLM 按指令改写。"""
+
+    def __init__(
+        self,
+        parent,
+        db_path,
+        node_id: int,
+        conn,
+        *,
+        allow_ai: bool = True,
+    ):
+        super().__init__(parent)
+        self.db_path = db_path
+        self.node_id = node_id
+        self.conn = conn
+        self.result_data: NodeEditResult | None = None
+        self.changed = False
+        self._worker: EditWorker | None = None
+        self._busy = False
+        self.allow_ai = allow_ai
+        node = get_node(conn, node_id)
+
+        self.setWindowTitle("修改记忆")
+        self.setMinimumWidth(560)
+        self.setModal(True)
+        layout = QVBoxLayout(self)
+
+        form = QFormLayout()
+        self.title_edit = QLineEdit(node["title"])
+        self.content_edit = QTextEdit()
+        self.content_edit.setPlainText(node["content"])
+        self.content_edit.setMinimumHeight(180)
+
+        self.type_combo = QComboBox()
+        for node_type in EDITABLE_TYPES:
+            self.type_combo.addItem(
+                TYPE_LABELS.get(node_type, node_type), node_type
+            )
+        type_index = self.type_combo.findData(node["type"])
+        if type_index >= 0:
+            self.type_combo.setCurrentIndex(type_index)
+
+        self.importance_combo = QComboBox()
+        for key in IMPORTANCE_ORDER:
+            self.importance_combo.addItem(
+                IMPORTANCE_LABELS[key], key
+            )
+        importance_index = self.importance_combo.findData(
+            importance_key(float(node["importance"]))
+        )
+        if importance_index >= 0:
+            self.importance_combo.setCurrentIndex(importance_index)
+
+        form.addRow("标题", self.title_edit)
+        form.addRow("内容", self.content_edit)
+        form.addRow("类型", self.type_combo)
+        form.addRow("重要度", self.importance_combo)
+        layout.addLayout(form)
+
+        ai_row = QHBoxLayout()
+        self.ai_instruction = QLineEdit()
+        self.ai_instruction.setPlaceholderText(
+            "可选：例如“改得更简洁，补充适用条件”"
+        )
+        self.ai_button = QPushButton("AI 改写")
+        self.ai_button.clicked.connect(self._ai_rewrite)
+        ai_row.addWidget(self.ai_instruction, 1)
+        ai_row.addWidget(self.ai_button)
+        layout.addLayout(ai_row)
+        if not allow_ai:
+            self.ai_instruction.setEnabled(False)
+            self.ai_button.setEnabled(False)
+            self.ai_button.setToolTip("离线模式不调用云端 LLM")
+
+        self.status = QLabel("")
+        self.status.setStyleSheet(
+            "color: #6b8299; font-size: 12px;"
+        )
+        layout.addWidget(self.status)
+
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.buttons.button(
+            QDialogButtonBox.StandardButton.Save
+        ).setText("保存")
+        self.buttons.button(
+            QDialogButtonBox.StandardButton.Cancel
+        ).setText("取消")
+        self.buttons.accepted.connect(self._save)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+
+        self.setStyleSheet(
+            "QDialog { background: #ffffff; }"
+            "QLabel { color: #4a6a85; font-size: 13px; }"
+            "QLineEdit, QTextEdit, QComboBox { background: #f7fbff;"
+            " color: #1c2b36; border: 1px solid #d7e3ee;"
+            " border-radius: 7px; padding: 6px; font-size: 14px; }"
+            "QPushButton { background: #eef4fa; color: #4a6a85;"
+            " border: none; border-radius: 8px; padding: 8px 14px;"
+            " font-size: 14px; }"
+            "QPushButton:hover { background: #e3eef9; }"
+        )
+        self.ai_button.setStyleSheet(
+            "QPushButton { background: #5aa9e6; color: white;"
+            " border: none; border-radius: 8px; padding: 8px 14px;"
+            " font-size: 14px; }"
+            "QPushButton:hover { background: #4a9bd8; }"
+        )
+        self.buttons.button(
+            QDialogButtonBox.StandardButton.Save
+        ).setStyleSheet(
+            "QPushButton { background: #4caf7d; color: white;"
+            " border: none; border-radius: 8px; padding: 8px 18px;"
+            " font-size: 14px; }"
+            "QPushButton:hover { background: #43a06f; }"
+        )
+
+    def _set_busy(self, busy: bool) -> None:
+        self._busy = busy
+        for widget in (
+            self.title_edit,
+            self.content_edit,
+            self.type_combo,
+            self.importance_combo,
+            self.ai_instruction,
+            self.ai_button,
+            self.buttons,
+        ):
+            widget.setEnabled(not busy)
+
+    def _populate(self, result: NodeEditResult) -> None:
+        self.title_edit.setText(result.title)
+        self.content_edit.setPlainText(result.content)
+        type_index = self.type_combo.findData(result.node_type)
+        if type_index >= 0:
+            self.type_combo.setCurrentIndex(type_index)
+        importance_index = self.importance_combo.findData(
+            importance_key(result.importance)
+        )
+        if importance_index >= 0:
+            self.importance_combo.setCurrentIndex(importance_index)
+
+    def _ai_rewrite(self) -> None:
+        instruction = self.ai_instruction.text().strip()
+        if not instruction:
+            QMessageBox.information(
+                self, "AI 改写", "请先填写修改要求。"
+            )
+            return
+        self._set_busy(True)
+        self.status.setText("AI 改写中，请稍候…")
+        worker = EditWorker(
+            self.db_path, self.node_id, instruction
+        )
+        self._worker = worker
+        worker.done.connect(self._on_ai_done)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _on_ai_done(self, result, error: str) -> None:
+        self._worker = None
+        self._set_busy(False)
+        if error or result is None:
+            self.status.setText("")
+            QMessageBox.critical(
+                self, "AI 改写失败", error or "LLM 没有返回结果"
+            )
+            return
+        self._populate(result)
+        self.result_data = result
+        self.changed = True
+        self.status.setText("AI 改写完成；可继续修改后保存。")
+
+    def _save(self) -> None:
+        title = self.title_edit.text().strip()
+        content = self.content_edit.toPlainText().strip()
+        if not title or not content:
+            QMessageBox.warning(
+                self, "无法保存", "标题和内容都不能为空。"
+            )
+            return
+        try:
+            result = update_node(
+                self.conn,
+                self.node_id,
+                title=title,
+                content=content,
+                node_type=self.type_combo.currentData(),
+                importance=IMPORTANCE_VALUES[
+                    self.importance_combo.currentData()
+                ],
+                today=Date.today(),
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "保存失败", str(exc))
+            return
+        self.result_data = result
+        self.changed = True
+        self.accept()
+
+    def reject(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            self.status.setText("AI 改写中，请稍候…")
+            return
+        super().reject()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        if self._worker is not None and self._worker.isRunning():
+            self.status.setText("AI 改写中，请稍候…")
+            event.ignore()
+            return
+        super().closeEvent(event)
 
 
 class PetFace(QWidget):
@@ -368,8 +644,11 @@ class DesktopPet(QWidget):
 
         footer = QHBoxLayout()
         footer.setSpacing(8)
+        self.edit_btn = self._make_button("修改", "#eef4fa", "#4a6a85")
+        self.edit_btn.setFixedWidth(76)
         self.skip_btn = self._make_button("跳过", "#eef4fa", "#4a6a85")
         self.reload_btn = self._make_button("重新加载", "#eef4fa", "#4a6a85")
+        footer.addWidget(self.edit_btn)
         footer.addWidget(self.skip_btn)
         footer.addWidget(self.reload_btn)
         bubble_layout.addLayout(footer)
@@ -379,6 +658,7 @@ class DesktopPet(QWidget):
     def _bind_events(self) -> None:
         self.close_btn.clicked.connect(self.close)
         self.reveal_btn.clicked.connect(self._reveal)
+        self.edit_btn.clicked.connect(self._edit_current)
         self.skip_btn.clicked.connect(self._skip)
         self.reload_btn.clicked.connect(self.reload)
         self.remember_btn.clicked.connect(
@@ -420,6 +700,7 @@ class DesktopPet(QWidget):
         self.reveal_btn.hide()
         self.feedback_widget.hide()
         self.importance_row.hide()
+        self.edit_btn.hide()
         self.skip_btn.hide()
         self.reload_btn.hide()
 
@@ -490,18 +771,8 @@ class DesktopPet(QWidget):
         label = CARD_TYPE_LABELS.get(card.card_type, card.card_type)
         self.status.setText(self._status_text(f"{current}/{total} · {label}"))
 
-    @staticmethod
-    def _importance_key(importance: float) -> str:
-        if importance >= 0.9:
-            return "very_high"
-        if importance >= 0.7:
-            return "high"
-        if importance >= 0.3:
-            return "normal"
-        return "low"
-
     def _refresh_importance_buttons(self, importance: float) -> None:
-        bucket = self._importance_key(importance)
+        bucket = importance_key(importance)
         for key, button in self.importance_buttons.items():
             button.setChecked(key == bucket)
 
@@ -544,6 +815,7 @@ class DesktopPet(QWidget):
         self.reveal_btn.hide()
         self.feedback_widget.hide()
         self.importance_row.hide()
+        self.edit_btn.hide()
         self.skip_btn.hide()
         self.reload_btn.show()
 
@@ -564,6 +836,7 @@ class DesktopPet(QWidget):
         self.answer.hide()
         self.reveal_btn.show()
         self.feedback_widget.hide()
+        self.edit_btn.show()
         self.skip_btn.show()
         self.reload_btn.hide()
         self.face.set_mood("idle")
@@ -588,11 +861,45 @@ class DesktopPet(QWidget):
         self.feedback_widget.hide()
         self.importance_row.hide()
         self.reveal_btn.hide()
+        self.edit_btn.hide()
         self.skip_btn.hide()
         self._advance_timer.start(900)
 
     def _skip(self) -> None:
         self.controller.skip()
+        self._show_card()
+
+    def _edit_current(self) -> None:
+        card = self.controller.current
+        if card is None:
+            return
+        try:
+            dialog = EditNodeDialog(
+                self,
+                self.db_path,
+                card.node_id,
+                self.controller.conn,
+                allow_ai=not self.offline,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "无法编辑", str(exc))
+            return
+        dialog.exec()
+        if dialog.changed:
+            self._reload_local_queue()
+            self.status.setText(f"已保存修改 · {self.status.text()}")
+            self.status.setToolTip("已保存修改")
+
+    def _reload_local_queue(self) -> None:
+        """编辑后只用本地数据刷新队列，不触发云端出题。"""
+        cards = get_today_queue(
+            self.controller.conn,
+            llm=None,
+            limit=self.limit,
+        )
+        self.controller.set_cards(cards)
+        self._cloud_pending = False
+        self.warning = ""
         self._show_card()
 
     # ---------- 窗口交互 ----------

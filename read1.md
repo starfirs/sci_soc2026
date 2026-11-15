@@ -125,6 +125,7 @@ python -m backend.review_cli
   用户已经开始作答就不会中途换题。
 - 复习交互：看题 → “显示答案” → “记得 / 模糊 / 不记得” → 自动下一题。
 - 每题下方有“重要度”：`很重要 / 重要 / 一般 / 不重要`，直接更新 `node.importance`。
+- 底部“修改”按钮打开编辑窗口：标题/内容/类型/重要度，支持填写要求后 AI 改写，确认后保存。
 - 选“不重要”：`due_at` 设为 `NULL`，移出复习；随后询问是否删除该节点。
 - 删除节点会级联删除它的边、复习记录和缓存卡片，`daily_summary` 中的 id 也会清理。
 - `review_cli` 提供同样的命令行流程，按 `1/2/3` 反馈，`s` 跳过，`q` 退出。
@@ -169,7 +170,10 @@ step:      0   1   2   3    4    5    6
 
 ### 2.6 节点编辑
 
-用户可以通过命令行或 Python API 主动修改记忆节点：
+桌宠卡片底部的“修改”按钮会打开 `EditNodeDialog`，可以直接编辑并保存，
+也可以在“AI 改写”输入框里填写要求，点击后由 LLM 改写并回填，再提交。
+
+用户也可以通过命令行或 Python API 主动修改记忆节点：
 
 ```bash
 python -m backend.node_edit --list
@@ -462,7 +466,7 @@ submit_feedback(node_id, card_type, feedback)
 | `nightly.py` | 夜间编排 | `run_nightly`；逐日整合；生成次日卡片；`NightlyReport` |
 | `review_cli.py` | 命令行复习 | 题目 → 答案 → 1/2/3 反馈；`--list`/`--offline` |
 | `pet_controller.py` | 桌宠纯状态机 | `PetController.load/current/reveal/feedback/skip/set_importance/delete_current/progress`，不依赖 Qt |
-| `desktop_pet.py` | PyQt6 桌宠 | `CardWorker`；`PetFace`；`DesktopPet`；缓存优先、后台补题；重要度按钮与删除确认 |
+| `desktop_pet.py` | PyQt6 桌宠 | `CardWorker`；`EditWorker`；`EditNodeDialog`；`PetFace`；`DesktopPet`；缓存优先、后台补题；重要度/修改/删除 |
 | `demo.py` | 演示数据 | 重建 `data/demo_start.db`，写入 3 个今日到期节点和卡片 |
 | `screen_capture.py` | 屏幕读取 | 前台窗口客户区；aHash；私有 OCR（Umi/Windows 备用）；排除规则；`ScreenReader`；CLI |
 | `local_ocr.py` | 私有 OCR 引擎 | 启动 PaddleOCR-json/RapidOCR-json 子进程；stdin/stdout JSON；mkldnn；CLI |
