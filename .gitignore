@@ -1,0 +1,22 @@
+# 本地配置与密钥
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# 本地数据
+data/
+*.db
+*.db-wal
+*.db-shm
+backend/memory.json
+
+# 本地 ASR 模型（体积大，按 USAGE.md 下载）
+models/
+
+# 项目私有 OCR 引擎（从 Umi-OCR 插件目录复制，MIT；体积大）
+vendor/
