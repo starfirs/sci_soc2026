@@ -8,7 +8,9 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import sys
+from ctypes import wintypes
 from datetime import date as Date
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, pyqtSignal
@@ -34,6 +36,7 @@ from PyQt6.QtWidgets import (
 from .config import configure_stdio, get_db_path, get_llm_config
 from .db import connect
 from .llm import DeepSeekClient
+from .local_ocr import LocalOCREngine
 from .node_edit import (
     EDITABLE_TYPES,
     NodeEditResult,
@@ -43,6 +46,15 @@ from .node_edit import (
 )
 from .pet_controller import PetController
 from .scheduler import IMPORTANCE_VALUES, get_today_queue
+from .screen_capture import (
+    _image_to_png,
+    capture_window_images,
+    foreground_window_info,
+    ingest_screen_text,
+    is_excluded,
+    load_exclusions,
+    session_locked,
+)
 
 CARD_TYPE_LABELS = {
     "clue": "线索回忆",
@@ -371,6 +383,137 @@ class EditNodeDialog(QDialog):
         super().closeEvent(event)
 
 
+class HotkeyWorker(QThread):
+    """注册 Windows 全局快捷键 Ctrl+Alt+E。"""
+
+    triggered = pyqtSignal()
+    failed = pyqtSignal(str)
+    HOTKEY_ID = 0x4D45
+    WM_HOTKEY = 0x0312
+    WM_QUIT = 0x0012
+
+    def __init__(self):
+        super().__init__()
+        self._thread_id = 0
+
+    def run(self) -> None:
+        if sys.platform != "win32":
+            self.failed.emit("全局快捷键只支持 Windows")
+            return
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        user32.RegisterHotKey.argtypes = [
+            wintypes.HWND,
+            ctypes.c_int,
+            wintypes.UINT,
+            wintypes.UINT,
+        ]
+        user32.RegisterHotKey.restype = wintypes.BOOL
+        user32.UnregisterHotKey.argtypes = [
+            wintypes.HWND,
+            ctypes.c_int,
+        ]
+        user32.GetMessageW.argtypes = [
+            ctypes.POINTER(wintypes.MSG),
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.UINT,
+        ]
+        user32.GetMessageW.restype = wintypes.BOOL
+        kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+        self._thread_id = int(kernel32.GetCurrentThreadId())
+
+        MOD_ALT = 0x0001
+        MOD_CONTROL = 0x0002
+        MOD_NOREPEAT = 0x4000
+        VK_E = 0x45
+        if not user32.RegisterHotKey(
+            None,
+            self.HOTKEY_ID,
+            MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
+            VK_E,
+        ):
+            error = ctypes.get_last_error()
+            self.failed.emit(
+                f"注册 Ctrl+Alt+E 失败（错误码 {error}），"
+                "可能被其他程序占用"
+            )
+            return
+        try:
+            message = wintypes.MSG()
+            while user32.GetMessageW(
+                ctypes.byref(message), None, 0, 0
+            ) > 0:
+                if (
+                    message.message == self.WM_HOTKEY
+                    and message.wParam == self.HOTKEY_ID
+                ):
+                    self.triggered.emit()
+        finally:
+            user32.UnregisterHotKey(None, self.HOTKEY_ID)
+
+    def stop(self) -> None:
+        if sys.platform != "win32" or not self._thread_id:
+            return
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.PostThreadMessageW.argtypes = [
+            wintypes.DWORD,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+        ]
+        user32.PostThreadMessageW.restype = wintypes.BOOL
+        user32.PostThreadMessageW(
+            self._thread_id, self.WM_QUIT, 0, 0
+        )
+
+
+class ScreenshotWorker(QThread):
+    """后台 OCR 一张手动截图；复用常驻的私有 OCR 引擎。"""
+
+    done = pyqtSignal(bool, str)
+
+    def __init__(self, db_path, pngs, engine: LocalOCREngine):
+        super().__init__()
+        self.db_path = db_path
+        self.pngs = pngs
+        self.engine = engine
+
+    def run(self) -> None:
+        try:
+            texts: list[str] = []
+            for png in self.pngs:
+                text = self.engine.ocr_png(png)
+                if text.strip():
+                    texts.append(text)
+            raw = "\n\n".join(texts)
+            if not raw.strip():
+                self.done.emit(False, "没有识别到文字")
+                return
+            conn = connect(self.db_path)
+            try:
+                result = ingest_screen_text(conn, raw)
+            finally:
+                conn.close()
+            message = (
+                f"{result.chars} 字符：{result.reason}"
+                if result.reason
+                else f"{result.chars} 字符"
+            )
+            self.done.emit(
+                result.action
+                in {
+                    "written",
+                    "skipped_duplicate",
+                    "skipped_short",
+                    "skipped_sensitive",
+                },
+                message,
+            )
+        except Exception as exc:
+            self.done.emit(False, str(exc))
+
+
 class PetFace(QWidget):
     """用 QPainter 画一个简单的小脸，避免依赖图片资源。"""
 
@@ -479,7 +622,14 @@ class PetFace(QWidget):
 
 
 class DesktopPet(QWidget):
-    def __init__(self, db_path, offline: bool = False, limit: int = 8):
+    def __init__(
+        self,
+        db_path,
+        offline: bool = False,
+        limit: int = 8,
+        *,
+        enable_hotkey: bool = True,
+    ):
         super().__init__()
         self.db_path = db_path
         self.offline = offline
@@ -488,6 +638,10 @@ class DesktopPet(QWidget):
         self._cloud_pending = False
         self._drag_offset = None
         self._worker = None
+        self._hotkey = None
+        self._screenshot_worker = None
+        self._manual_engine = None
+        self._hotkey_error = ""
         self.controller = PetController(connect(db_path), llm=None, limit=limit)
 
         self._setup_window()
@@ -495,6 +649,74 @@ class DesktopPet(QWidget):
         self._bind_events()
         self._move_to_corner()
         self.reload()
+        if enable_hotkey:
+            self._start_hotkey()
+
+    def _start_hotkey(self) -> None:
+        self._hotkey = HotkeyWorker()
+        self._hotkey.triggered.connect(self._manual_screenshot)
+        self._hotkey.failed.connect(self._on_hotkey_failed)
+        self._hotkey.start()
+
+    def _on_hotkey_failed(self, message: str) -> None:
+        self._hotkey_error = message
+        self.status.setToolTip(message)
+        print(f"[hotkey] {message}", file=sys.stderr)
+
+    def _manual_screenshot(self) -> None:
+        if (
+            self._screenshot_worker is not None
+            and self._screenshot_worker.isRunning()
+        ):
+            return
+        if session_locked():
+            self.status.setText("手动截图失败：屏幕已锁定")
+            return
+        info = foreground_window_info()
+        if info is None:
+            self.status.setText("手动截图失败：没有前台窗口")
+            return
+        reason = is_excluded(info, load_exclusions())
+        if reason is not None:
+            self.status.setText(f"手动截图已跳过：{reason}")
+            return
+        images = capture_window_images(info)
+        if not images:
+            self.status.setText("手动截图失败：无法捕获窗口")
+            return
+        try:
+            pngs = [_image_to_png(image) for _, image in images]
+        except Exception as exc:
+            self.status.setText(f"手动截图失败：{exc}")
+            return
+        if self._manual_engine is None:
+            try:
+                self._manual_engine = LocalOCREngine("auto")
+            except Exception as exc:
+                self.status.setText(f"OCR 不可用：{exc}")
+                self.status.setToolTip(str(exc))
+                return
+        self.face.set_mood("thinking")
+        self.status.setText("正在识别手动截图…")
+        worker = ScreenshotWorker(
+            self.db_path, pngs, self._manual_engine
+        )
+        self._screenshot_worker = worker
+        worker.done.connect(self._on_screenshot_done)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _on_screenshot_done(self, ok: bool, message: str) -> None:
+        self._screenshot_worker = None
+        self.face.set_mood("happy" if ok else "sad")
+        self.status.setText(
+            "手动截图处理完成，等待夜间整合"
+            if ok
+            else "手动截图失败"
+        )
+        self.status.setToolTip(message)
+        if not ok:
+            print(f"[screenshot] {message}", file=sys.stderr)
 
     # ---------- 界面搭建 ----------
 
@@ -924,21 +1146,35 @@ class DesktopPet(QWidget):
 
     def contextMenuEvent(self, event) -> None:  # noqa: N802
         menu = QMenu(self)
+        shot_action = menu.addAction("手动截图 (Ctrl+Alt+E)")
         reload_action = menu.addAction("重新加载")
         quit_action = menu.addAction("退出")
         chosen = menu.exec(event.globalPos())
-        if chosen is reload_action:
+        if chosen is shot_action:
+            self._manual_screenshot()
+        elif chosen is reload_action:
             self.reload()
         elif chosen is quit_action:
             self.close()
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        if self._hotkey is not None:
+            self._hotkey.stop()
+            self._hotkey.wait(2000)
+        if (
+            self._screenshot_worker is not None
+            and self._screenshot_worker.isRunning()
+        ):
+            self._screenshot_worker.wait(5000)
         if self._worker is not None and self._worker.isRunning():
             self._worker.requestInterruption()
             if not self._worker.wait(3000):
                 # 云端请求卡住时不必让窗口无法关闭；进程即将退出。
                 self._worker.terminate()
                 self._worker.wait(1000)
+        if self._manual_engine is not None:
+            self._manual_engine.close()
+            self._manual_engine = None
         self.controller.conn.close()
         super().closeEvent(event)
 
@@ -963,6 +1199,7 @@ def main(argv: list[str] | None = None) -> int:
         args.db or get_db_path(),
         offline=args.offline or args.smoke_test,
         limit=args.limit,
+        enable_hotkey=not args.smoke_test,
     )
     window.show()
 

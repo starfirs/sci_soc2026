@@ -59,8 +59,9 @@ def ingest_text(
     source: str = "manual",
     ts: str | None = None,
     known_names: tuple[str, ...] = (),
+    consolidate: bool = True,
 ):
-    """脱敏、写入一条 segment，然后触发当天整合。"""
+    """脱敏、写入一条 segment；默认随后触发当天整合。"""
     now = datetime.now()
     date_str = date_str or now.date().isoformat()
     ts = ts or now.isoformat(timespec="seconds")
@@ -81,7 +82,11 @@ def ingest_text(
     )
     conn.commit()
 
-    report = memory.consolidate(conn, llm, date_str)
+    report = (
+        memory.consolidate(conn, llm, date_str)
+        if consolidate
+        else None
+    )
     return masked, report
 
 

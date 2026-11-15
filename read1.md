@@ -193,6 +193,17 @@ python -m backend.node_edit --id 3 --delete
 - Python 接口：`backend.node_edit.edit_node` / `update_node` /
   `edit_node_with_llm`。
 
+### 2.7 手动截图与文档导入
+
+- 桌宠运行时按 `Ctrl+Alt+E` 对当前前台窗口做一次手动 OCR，走屏幕读取的
+  排除规则、本地 OCR、脱敏后写入 `segment(source='screen')`。
+- 右键桌宠也有“手动截图”菜单项；快捷键被占用时仍可用菜单。
+- 支持导入 `.pdf`、`.docx`、`.txt`、`.md`：
+  - 文本 PDF 用 `pypdf` 提取；扫描版 PDF 没有文本层会提示先 OCR。
+  - 文档按约 4000 字符切块，每块走脱敏 → segment → 整合。
+  - `--defer` 只写入 segment，交给 `nightly`。
+  - `--dry-run` 只提取/切块，不写库、不调用 LLM。
+
 ---
 
 ## 3. 总体架构
@@ -466,7 +477,7 @@ submit_feedback(node_id, card_type, feedback)
 | `nightly.py` | 夜间编排 | `run_nightly`；逐日整合；生成次日卡片；`NightlyReport` |
 | `review_cli.py` | 命令行复习 | 题目 → 答案 → 1/2/3 反馈；`--list`/`--offline` |
 | `pet_controller.py` | 桌宠纯状态机 | `PetController.load/current/reveal/feedback/skip/set_importance/delete_current/progress`，不依赖 Qt |
-| `desktop_pet.py` | PyQt6 桌宠 | `CardWorker`；`EditWorker`；`EditNodeDialog`；`PetFace`；`DesktopPet`；缓存优先、后台补题；重要度/修改/删除 |
+| `desktop_pet.py` | PyQt6 桌宠 | `CardWorker`；`EditWorker`；`EditNodeDialog`；`HotkeyWorker`；`ScreenshotWorker`；`PetFace`；`DesktopPet`；缓存优先、后台补题；重要度/修改/删除/手动截图 |
 | `demo.py` | 演示数据 | 重建 `data/demo_start.db`，写入 3 个今日到期节点和卡片 |
 | `screen_capture.py` | 屏幕读取 | 前台窗口客户区；aHash；私有 OCR（Umi/Windows 备用）；排除规则；`ScreenReader`；CLI |
 | `local_ocr.py` | 私有 OCR 引擎 | 启动 PaddleOCR-json/RapidOCR-json 子进程；stdin/stdout JSON；mkldnn；CLI |
@@ -474,6 +485,7 @@ submit_feedback(node_id, card_type, feedback)
 | `umi_ocr.py` | 可选 Umi 客户端 | HTTP `/api/ocr`；引擎检测/选择；mkldnn 读取与写入；CLI |
 | `audio_capture.py` | 录音链路 | `soundcard` 麦克风/回环；Vosk；`CaptureWorker`；`transcribe_wav`；CLI |
 | `node_edit.py` | 节点编辑接口 | `update_node`；`edit_node_with_llm`；`edit_node`；`node_detail`；CLI |
+| `import_doc.py` | 文档导入 | `extract_text`；`split_text`；`import_file`；PDF/DOCX/TXT/MD |
 | `llm.py` | 云端 LLM | `DeepSeekClient`（stdlib `urllib` HTTP）；`LLMError`；`parse_json` |
 | `memory_graph.py` | 旧原型（不要扩展） | networkx + JSON，schema 与设计不一致 |
 | `test.py` | 旧原型脚本（不要扩展） | 旧版演示 |
@@ -491,12 +503,13 @@ submit_feedback(node_id, card_type, feedback)
 | `test_pipeline.py` | 手动文本入库、映射持久化 |
 | `test_scheduler.py` | 到期选择、优先级、卡片缓存、部分缓存、LLM 补题、重要度、节点删除 |
 | `test_node_edit.py` | 直接编辑、脱敏、LLM 改写、缓存失效、节点详情 |
+| `test_import_doc.py` | PDF/DOCX/TXT 提取、切块、defer/LLM 导入 |
 | `test_pet_controller.py` | 桌宠状态机、重要度与删除当前卡片 |
 | `test_nightly.py` | 夜间整合 + 次日卡片、离线兜底、幂等 |
 | `test_screen_capture.py` | 归一化、敏感行、排除规则、屏幕入库/去重 |
 | `test_audio_capture.py` | 录音文本归一化、脱敏、跨音源去重、dry-run |
 
-当前共 **102** 个测试，全部使用 FakeLLM / 假 Umi 服务 / 临时数据库，不访问网络。
+当前共 **106** 个测试，全部使用 FakeLLM / 假 Umi 服务 / 临时数据库，不访问网络。
 
 ### 6.3 文档与配置
 
@@ -609,7 +622,7 @@ python -m pytest -q
 - 录音：TTS WAV → Vosk 转写 → 脱敏 → `segment(source='microphone')`
   → `nightly` 建节点 → 生成卡片。
 - 桌宠：缓存完整时约 12 ms 加载，无云端请求；缓存缺失时本地模板先显示。
-- 测试：**102 passed**。
+- 测试：**106 passed**。
 
 ---
 
@@ -625,9 +638,10 @@ python -m pytest -q
 - 间隔复习、三按钮反馈、`review_log`
 - 重要度标记（很重要/重要/一般/不重要）与“不重要”节点删除
 - 节点编辑接口：直接字段修改 + LLM 自然语言改写
+- 手动截图快捷键与 PDF/DOCX/TXT/Markdown 导入
 - PyQt6 桌宠（缓存优先、后台补题、状态表情）
 - 本地脱敏、占位符映射、敏感行丢弃
-- 102 个离线测试
+- 106 个离线测试
 
 ### 9.2 未实现 / 后续路线
 

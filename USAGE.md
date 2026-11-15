@@ -15,6 +15,8 @@
 - 录音链路基础版：麦克风 + 系统声音回环，Vosk 本地转写，脱敏后写入 `segment`
 - 本地 SQLite 存储、占位符映射、复习日志
 - 节点查看/编辑：直接改标题、内容、类型、重要度、状态，或让 LLM 按自然语言改写
+- 手动截图：桌宠运行时按 `Ctrl+Alt+E`，走本地 OCR/脱敏后写入屏幕片段
+- 文档导入：PDF/DOCX/TXT/Markdown 提取文本后整合成记忆
 
 还没实现：
 
@@ -143,9 +145,14 @@ print([m['id'] for m in json.load(urllib.request.urlopen(req))['data']])
 4. 启动录音
 5. 运行测试
 6. 打开本说明
+7. 导入 PDF/DOCX/TXT/Markdown
 
 只想立即看桌宠效果，双击 `start_demo.bat`。它只重建
 `data/demo_start.db`，不会修改真实 `data/memory.db`。
+
+桌宠运行时按 `Ctrl+Alt+E` 可手动截图当前前台窗口；右键桌宠也有
+“手动截图”菜单项。截图会走屏幕读取的排除规则、本地 OCR 和脱敏，
+写入 `segment(source='screen')`，等待夜间整合。
 
 ### 4.2 命令行
 
@@ -294,6 +301,20 @@ python -m backend.screen_capture --exclude "私人页面" --exclude-process some
 - 桌宠是置顶窗口，如果挡住前台窗口，可能被截进画面。
 - 默认只读前台窗口；`--full-screen` 会读到背景内容，只在你明确需要时用。
 - 目前没有托盘开关、采集指示灯、暂停快捷键；用 `Ctrl+C` 停止。
+
+### 6.5 手动截图快捷键
+
+桌宠运行时，按 **`Ctrl+Alt+E`** 会立即对当前前台窗口做一次截图：
+
+- 全局快捷键，不需要先点桌宠
+- 复用屏幕读取的前台窗口裁剪、排除规则、本地 OCR 和脱敏
+- 写入 `segment(source='screen')`，等 `nightly` 整合
+- 不调用云端 LLM，截图不落盘
+- 状态栏会显示“正在识别手动截图…”/“处理完成”
+- 如果快捷键被其他程序占用，会打印错误并设置状态栏提示；
+  仍可右键桌宠选择“手动截图 (Ctrl+Alt+E)”
+
+手动截图需要桌宠进程在运行；`--smoke-test` 不会注册快捷键。
 
 ## 7. 录音链路
 
@@ -466,7 +487,7 @@ LLM 出题失败时会写入本地模板卡片，并在输出的 `errors` 里给
 python -m pytest -q
 ```
 
-测试使用假 LLM / 假 Umi-OCR 服务 / 临时引擎目录，不消耗 API。当前 102 个测试。
+测试使用假 LLM / 假 Umi-OCR 服务 / 临时引擎目录，不消耗 API。当前 106 个测试。
 
 ### 8.7 节点编辑
 
@@ -513,6 +534,42 @@ edit_node(conn, 3, instruction="改得更简洁", llm=client)
 - 修改标题/内容/类型会让该节点的 `daily_card` 缓存失效，下次重新出题。
 - 重要度低于 0.3 或状态不是 `active` 时自动移出复习。
 - 删除节点会级联删除相关边、复习记录和缓存卡片，不可恢复。
+
+### 8.8 文档导入
+
+支持 `.pdf`、`.docx`、`.txt`、`.md` / `.markdown`：
+
+```bash
+# 提取文本 → 脱敏 → 整合成记忆节点
+python -m backend.import_doc notes.pdf
+python -m backend.import_doc slides.docx notes.txt --date 2026-11-15
+
+# 只提取和切块，不写库、不调用 LLM
+python -m backend.import_doc notes.pdf --dry-run
+python -m backend.import_doc notes.pdf --dry-run --show-text
+
+# 只写入 segment，交给 nightly 整合（适合长文档/稍后处理）
+python -m backend.import_doc notes.pdf --defer
+```
+
+规则：
+
+- 文档按约 4000 字符切块（`--max-chars` 可调），每块走现有
+  `pipeline.ingest_text`：本地脱敏 → `segment(source='import')` → 整合。
+- 默认立即调用 LLM 整合；`--defer` 不调用 LLM，等 `nightly`。
+- 文本 PDF 用 `pypdf` 提取；扫描版 PDF 没有文本层，会提示先 OCR。
+- DOCX 直接读 `word/document.xml`，不需要额外依赖。
+- 导入的文本同样经过手机号/邮箱/身份证/姓名脱敏。
+
+Python 接口：
+
+```python
+from backend.import_doc import extract_text, split_text, import_file
+
+text = extract_text("notes.pdf")
+chunks = split_text(text, max_chars=4000)
+report = import_file(conn, llm, "notes.pdf", defer=False)
+```
 
 ## 9. 数据与隐私
 
@@ -663,8 +720,9 @@ backend/
   umi_ocr.py         Umi-OCR HTTP 客户端、引擎选择、mkldnn 检查
   audio_capture.py   麦克风/系统声音 + Vosk 转写
   node_edit.py       节点查看、直接编辑、LLM 自然语言改写
+  import_doc.py      PDF/DOCX/TXT/Markdown 导入与切块
   llm.py             DeepSeek HTTP 客户端
-tests/               102 个测试，使用 FakeLLM / 假 Umi 服务
+tests/               106 个测试，使用 FakeLLM / 假 Umi 服务
 data/                本地数据库、屏幕排除规则（gitignored）
 models/              本地 Vosk 模型（gitignored）
 ```

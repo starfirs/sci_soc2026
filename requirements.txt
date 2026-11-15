@@ -17,3 +17,5 @@ winrt-Windows.Foundation.Collections
 soundcard>=0.4
 numpy>=1.24
 vosk>=0.3.45
+# PDF 文本导入
+pypdf>=4.0

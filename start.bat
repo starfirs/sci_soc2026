@@ -33,16 +33,18 @@ echo   3. Start screen capture (Ctrl+C to stop)
 echo   4. Start audio capture (Ctrl+C to stop)
 echo   5. Run tests
 echo   6. Open USAGE.md
+echo   7. Import PDF/DOCX/TXT/MD
 echo   0. Exit
 echo.
 set "CHOICE="
-set /p CHOICE=Select [0-6]:
+set /p CHOICE=Select [0-7]:
 if "%CHOICE%"=="1" goto pet
 if "%CHOICE%"=="2" goto demo
 if "%CHOICE%"=="3" goto screen
 if "%CHOICE%"=="4" goto audio
 if "%CHOICE%"=="5" goto test
 if "%CHOICE%"=="6" goto docs
+if "%CHOICE%"=="7" goto import
 if "%CHOICE%"=="0" goto end
 goto menu
 
@@ -69,6 +71,15 @@ goto menu
 
 :docs
 start "" notepad "%~dp0USAGE.md"
+goto menu
+
+:import
+set "IMPORT_FILE="
+set /p IMPORT_FILE=File path (pdf/docx/txt/md):
+if not "%IMPORT_FILE%"=="" (
+    "%PY%" -m backend.import_doc "%IMPORT_FILE%"
+)
+pause
 goto menu
 
 :end
