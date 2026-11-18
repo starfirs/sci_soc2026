@@ -920,7 +920,11 @@ class DesktopPet(QWidget):
             button.setChecked(key == bucket)
 
     def _set_importance(self, key: str) -> None:
-        result = self.controller.set_importance(key)
+        try:
+            result = self.controller.set_importance(key)
+        except Exception as exc:
+            QMessageBox.critical(self, "设置重要度失败", str(exc))
+            return
         if result is None:
             return
         label = IMPORTANCE_LABELS.get(key, key)
@@ -938,20 +942,60 @@ class DesktopPet(QWidget):
                 )
             return
 
-        answer = QMessageBox.question(
-            self,
-            "删除记忆",
-            "已标为不重要，不再进入复习。\n"
-            "要同时删除这条记忆吗？删除后不可恢复。",
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer == QMessageBox.StandardButton.Yes:
-            self.controller.delete_current()
-        else:
-            self.controller.advance()
+        try:
+            if self._confirm_delete_after_low():
+                self.controller.delete_current()
+            else:
+                self.controller.advance()
+        except Exception as exc:
+            QMessageBox.critical(self, "操作失败", str(exc))
+            return
         self._show_card()
+
+    def _confirm_delete_after_low(self) -> bool:
+        """显式置顶的确认框，避免 Tool 窗口把标准弹窗压在后面。"""
+        box = QMessageBox(self)
+        box.setWindowTitle("删除记忆")
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            "已标为不重要，不再进入复习。\n"
+            "要同时删除这条记忆吗？删除后不可恢复。"
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        box.setWindowModality(Qt.WindowModality.ApplicationModal)
+        box.setWindowFlag(
+            Qt.WindowType.WindowStaysOnTopHint, True
+        )
+        box.setStyleSheet(
+            "QMessageBox { background: #ffffff; }"
+            "QLabel { color: #1c2b36; font-size: 14px; }"
+            "QPushButton { background: #eef4fa; color: #4a6a85;"
+            " border: none; border-radius: 7px;"
+            " padding: 7px 14px; font-size: 14px; }"
+            "QPushButton:hover { background: #e3eef9; }"
+        )
+        yes_button = box.button(QMessageBox.StandardButton.Yes)
+        no_button = box.button(QMessageBox.StandardButton.No)
+        if yes_button is not None:
+            yes_button.setText("删除")
+            yes_button.setStyleSheet(
+                "QPushButton { background: #e57373; color: white;"
+                " border: none; border-radius: 7px;"
+                " padding: 7px 14px; font-size: 14px; }"
+                "QPushButton:hover { background: #d65f5f; }"
+            )
+        if no_button is not None:
+            no_button.setText("仅标记")
+        box.adjustSize()
+        center = self.frameGeometry().center()
+        box.move(center - box.rect().center())
+        box.raise_()
+        box.activateWindow()
+        return box.exec() == QMessageBox.StandardButton.Yes
 
     def _show_idle_controls(self) -> None:
         self.answer.hide()
