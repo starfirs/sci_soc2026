@@ -14,7 +14,7 @@ from ctypes import wintypes
 from datetime import date as Date
 
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QGuiApplication
+from PyQt6.QtGui import QFont, QFontMetrics, QGuiApplication
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -632,7 +633,7 @@ class DesktopPet(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setWindowTitle("AI 记忆伙伴")
-        self.setFixedSize(480, 520)
+        self.setFixedSize(540, 600)
 
     def _make_button(self, text: str, color: str, text_color: str = "#ffffff") -> QPushButton:
         button = QPushButton(text)
@@ -711,6 +712,27 @@ class DesktopPet(QWidget):
         bubble_layout = QVBoxLayout(bubble)
         bubble_layout.setContentsMargins(16, 16, 16, 16)
         bubble_layout.setSpacing(10)
+
+        self.topic_label = QLabel("")
+        self.topic_label.setWordWrap(False)
+        self.topic_label.setFixedHeight(28)
+        self.topic_label.setSizePolicy(
+            QSizePolicy.Policy.Maximum,
+            QSizePolicy.Policy.Fixed,
+        )
+        self.topic_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft
+            | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.topic_label.setStyleSheet(
+            "color: #4a6a85; background: #eef4fa;"
+            " border: 1px solid #d7e3ee; border-radius: 8px;"
+            " padding: 2px 9px; font-size: 12px;"
+        )
+        bubble_layout.addWidget(
+            self.topic_label,
+            alignment=Qt.AlignmentFlag.AlignLeft,
+        )
 
         self.question = QLabel("")
         self.question.setWordWrap(True)
@@ -845,6 +867,7 @@ class DesktopPet(QWidget):
         self.reveal_btn.hide()
         self.feedback_widget.hide()
         self.hint.hide()
+        self.topic_label.hide()
         self.importance_row.hide()
         self.edit_btn.hide()
         self.skip_btn.hide()
@@ -1002,6 +1025,7 @@ class DesktopPet(QWidget):
         self.reveal_btn.hide()
         self.feedback_widget.hide()
         self.hint.hide()
+        self.topic_label.hide()
         self.importance_row.hide()
         self.edit_btn.hide()
         self.skip_btn.hide()
@@ -1017,6 +1041,19 @@ class DesktopPet(QWidget):
             return
 
         self._refresh_status()
+        topic = (
+            f"{TYPE_LABELS.get(card.type, card.type)} · {card.title}"
+        )
+        metrics = QFontMetrics(self.topic_label.font())
+        self.topic_label.setText(
+            metrics.elidedText(
+                topic,
+                Qt.TextElideMode.ElideRight,
+                420,
+            )
+        )
+        self.topic_label.setToolTip(topic)
+        self.topic_label.show()
         self.question.setText(card.question)
         self.hint.show()
         self._refresh_importance_buttons(card.importance)
@@ -1048,6 +1085,7 @@ class DesktopPet(QWidget):
         self.answer.hide()
         self.feedback_widget.hide()
         self.hint.hide()
+        self.topic_label.hide()
         self.importance_row.hide()
         self.reveal_btn.hide()
         self.edit_btn.hide()

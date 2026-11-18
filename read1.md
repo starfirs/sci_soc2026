@@ -123,7 +123,8 @@ python -m backend.review_cli
   是毫秒级。
 - 缓存缺失或节点 `step`/内容变化时，先显示本地模板，再后台请求云端补题；
   用户已经开始作答就不会中途换题。
-- 复习交互：看题 → “显示答案” → “记得 / 模糊 / 不记得” → 自动下一题。
+- 复习交互：看“类型 · 主题”标签和具体情境题 → “显示答案” → “记得 / 模糊 / 不记得” → 自动下一题。
+- LLM 出题强调具体细节（人物/时间/步骤/条件/因果），避免“谈谈你对 X 的理解”式抽象问题。
 - 每题下方有“重要度”：`很重要 / 重要 / 一般 / 不重要`，直接更新 `node.importance`。
 - 底部“修改”按钮打开编辑窗口：标题/内容/类型/重要度，支持填写要求后 AI 改写，确认后保存。
 - 选“不重要”：`due_at` 设为 `NULL`，移出复习；随后询问是否删除该节点。
@@ -489,7 +490,7 @@ submit_feedback(node_id, card_type, feedback)
 | `nightly.py` | 夜间编排 | `run_nightly`；逐日整合；生成次日卡片；`NightlyReport` |
 | `review_cli.py` | 命令行复习 | 题目 → 答案 → 1/2/3 反馈；`--list`/`--offline` |
 | `pet_controller.py` | 桌宠纯状态机 | `PetController.load/current/reveal/feedback/skip/set_importance/delete_current/progress`，不依赖 Qt |
-| `desktop_pet.py` | PyQt6 复习伙伴 | `CardWorker`；`EditWorker`；`EditNodeDialog`；`HotkeyWorker`；`ScreenshotWorker`；`DesktopPet`；日期栏、控制中心风格卡片；缓存优先、后台补题；重要度/修改/删除/手动截图 |
+| `desktop_pet.py` | PyQt6 复习伙伴 | `CardWorker`；`EditWorker`；`EditNodeDialog`；`HotkeyWorker`；`ScreenshotWorker`；`DesktopPet`；540×600、日期栏、主题标签、控制中心风格卡片；缓存优先、后台补题；重要度/修改/删除/手动截图 |
 | `demo.py` | 演示数据 | 重建 `data/demo_start.db`，写入 3 个今日到期节点和卡片 |
 | `screen_capture.py` | 屏幕读取 | 前台窗口客户区；aHash；私有 OCR（Umi/Windows 备用）；排除规则；`ScreenReader`；CLI |
 | `local_ocr.py` | 私有 OCR 引擎 | 启动 PaddleOCR-json/RapidOCR-json 子进程；stdin/stdout JSON；mkldnn；CLI |

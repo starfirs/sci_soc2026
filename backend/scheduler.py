@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import date as Date, datetime
 
@@ -16,8 +17,9 @@ from .llm import LLMClient
 DEFAULT_DAILY_LIMIT = 8
 CARD_TYPES = {"clue", "cloze", "scenario", "relation"}
 
-CARD_SYSTEM = """你是复习出题助手。给定今天到期的记忆节点（内容已脱敏），
-请为每个节点生成一道主动回忆题和答案。只输出 JSON，不要输出解释或 Markdown。
+CARD_SYSTEM = """你是主动回忆教练。用户复习的是自己过去记录的真实内容，
+不是单词卡。给定今天到期的记忆节点（内容已脱敏），为每个节点设计一道
+具体、有情境的回忆题。只输出 JSON，不要输出解释或 Markdown。
 
 JSON 格式：
 {
@@ -32,16 +34,28 @@ JSON 格式：
 }
 
 规则：
-- 先给线索，不要直接把答案写进问题；答案必须来自节点内容，不要编造。
+- 问题必须落到节点里的具体细节：谁、什么时候、在哪里、做了什么、
+  具体数字/步骤/顺序、适用条件、原因或结果。
+- 禁止“关于X，你能想起哪些要点”“请简述X”这类抽象问题。
+- 先给线索或情境，不要把答案直接写进问题；答案必须来自节点内容，不要编造。
+- 按节点类型设计问题：
+  - concept：问适用条件、具体例子、和相近概念的区别；
+  - event：问参与者、经过、结果或当时的场景；
+  - fact：问具体结论、数字、原因或影响；
+  - person：问关系、联系方式或一起做过的事（保留占位符）；
+  - todo：问截止时间、下一步或负责人。
+- 问题自然、口语化，一到两句话，像朋友追问；用户应该能直接回答，
+  而不是泛泛地“谈谈理解”。
+- 可以参考 title 定位主题，但问题要引用 content 里的具体信息。
 - 尽量使用节点给出的 suggested_card_type。
 - 保留 [人物1]、[手机1] 等脱敏占位符。
 """
 
 _FALLBACK_QUESTIONS = {
-    "clue": "关于「{title}」，你能想起哪些要点？",
-    "cloze": "补全：「{title}」的关键内容是什么？",
-    "scenario": "回忆一下：你是在什么情境下记下「{title}」的？",
-    "relation": "「{title}」和你记忆中的其他内容有什么联系？",
+    "clue": "回忆「{title}」：你当时记下的内容以“{snippet}”开头，接下来具体说了什么？",
+    "cloze": "补全你记下的「{title}」：{snippet}…… 缺失的关键细节是什么？",
+    "scenario": "回到记录「{title}」的场景：你写下了“{snippet}”。当时具体发生了什么？",
+    "relation": "「{title}」让你想到之前记过的哪件事？线索：{snippet}",
 }
 
 
@@ -170,7 +184,12 @@ def select_due(
 
 def _fallback(node: DueNode) -> tuple[str, str, str]:
     card_type = card_type_for(node.step)
-    question = _FALLBACK_QUESTIONS[card_type].format(title=node.title)
+    snippet = re.sub(r"\s+", " ", node.content).strip()
+    if len(snippet) > 48:
+        snippet = snippet[:48] + "…"
+    question = _FALLBACK_QUESTIONS[card_type].format(
+        title=node.title, snippet=snippet
+    )
     return card_type, question, node.content
 
 
@@ -181,6 +200,7 @@ def _generate_with_llm(
         "cards": [
             {
                 "node_id": node.node_id,
+                "node_type": node.type,
                 "suggested_card_type": card_type_for(node.step),
                 "title": node.title,
                 "content": node.content,
