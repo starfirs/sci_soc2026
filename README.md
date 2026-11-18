@@ -63,6 +63,8 @@ python -m backend.node_edit --id 3 --instruction "把这条记忆改得更简洁
 python -m backend.import_doc --pick              # 打开文件选择器
 python -m backend.import_doc "D:/资料/讲义.pdf"
 python -m backend.import_doc notes.pdf --defer   # 只落库，等 nightly 整合
+# 导入中途云端失败不会丢掉整份文档：失败块保留为待整合片段，
+# 重新运行 nightly 即可重试。
 
 # 今日复习：先自己想，按回车看答案，再按 1/2/3 反馈
 python -m backend.review_cli

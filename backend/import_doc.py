@@ -21,6 +21,7 @@ from datetime import date as Date
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from . import memory
 from .config import configure_stdio, get_db_path, get_llm_config
 from .db import connect
 from .llm import DeepSeekClient
@@ -28,6 +29,8 @@ from .pipeline import ingest_text
 
 SUPPORTED_SUFFIXES = {".txt", ".md", ".markdown", ".pdf", ".docx"}
 DEFAULT_MAX_CHARS = 4000
+# 文档正文（尤其是公式页）常让云端单次响应超过 30 秒，导入单独放宽。
+IMPORT_LLM_TIMEOUT = 90.0
 
 
 @dataclass
@@ -44,6 +47,7 @@ class ImportReport:
     deferred: bool = False
     node_ids: list[int] = field(default_factory=list)
     reports: list[dict] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -58,7 +62,16 @@ class ImportReport:
             "superseded": self.superseded,
             "deferred": self.deferred,
             "node_ids": self.node_ids,
+            "errors": self.errors,
         }
+
+
+def make_import_llm() -> DeepSeekClient:
+    """导入用的云端客户端：至少给 90 秒，避免长公式页超时中断整份文档。"""
+    config = get_llm_config()
+    return DeepSeekClient(
+        config, timeout=max(config.timeout, IMPORT_LLM_TIMEOUT)
+    )
 
 
 def _read_text_file(path: Path) -> str:
@@ -203,17 +216,43 @@ def import_file(
         deferred=defer,
     )
     for index, chunk in enumerate(chunks, 1):
-        _, chunk_report = ingest_text(
-            conn,
-            llm,
-            chunk,
-            date_str=date_str,
-            source="import",
-            known_names=tuple(known_names),
-            consolidate=not defer,
-        )
+        try:
+            ingest_text(
+                conn,
+                llm,
+                chunk,
+                date_str=date_str,
+                source="import",
+                known_names=tuple(known_names),
+                consolidate=False,
+            )
+        except Exception as exc:
+            message = f"第 {index}/{len(chunks)} 块写入失败：{exc}"
+            report.errors.append(message)
+            if progress is not None:
+                progress(index, len(chunks), None, message)
+            continue
+
         report.segments += 1
+        chunk_report = None
+        if not defer:
+            try:
+                chunk_report = memory.consolidate(conn, llm, date_str)
+            except Exception as exc:
+                # 片段已经落库；继续导入后面的块，失败片段可交给 nightly 重试。
+                message = f"第 {index}/{len(chunks)} 块整合失败：{exc}"
+                report.errors.append(message)
+                if progress is not None:
+                    progress(index, len(chunks), None, message)
+                continue
+
         if chunk_report is not None:
+            # 本次整合已顺带处理之前失败留下的未处理片段，旧错误不再成立。
+            report.errors = [
+                message
+                for message in report.errors
+                if "整合失败" not in message
+            ]
             report.created += chunk_report.created
             report.merged += chunk_report.merged
             report.linked += chunk_report.linked
@@ -284,13 +323,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     total_chunks = 0
+    failed_files = 0
+    failed_chunks = 0
     for path in files:
         try:
             text = extract_text(path)
             chunks = split_text(text, args.max_chars)
         except Exception as exc:
             print(f"[失败] {path}: {exc}")
-            return 1
+            failed_files += 1
+            continue
         print(
             f"{path.name}: {len(text)} 字符，切成 {len(chunks)} 块"
         )
@@ -304,13 +346,12 @@ def main(argv: list[str] | None = None) -> int:
 
         conn = connect(args.db or get_db_path())
         try:
-            llm = (
-                None
-                if args.defer
-                else DeepSeekClient(get_llm_config())
-            )
+            llm = None if args.defer else make_import_llm()
 
-            def progress(index, total, chunk_report):
+            def progress(index, total, chunk_report, error=""):
+                if error:
+                    print(f"  [{index}/{total}] {error}")
+                    return
                 status = (
                     "仅写入"
                     if chunk_report is None
@@ -334,7 +375,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         except Exception as exc:
             print(f"[失败] {path}: {exc}")
-            return 1
+            failed_files += 1
+            continue
         finally:
             conn.close()
 
@@ -348,6 +390,12 @@ def main(argv: list[str] | None = None) -> int:
                 else ""
             )
         )
+        if report.errors:
+            failed_chunks += len(report.errors)
+            print(
+                f"  注意：有 {len(report.errors)} 块未完成，"
+                "片段已保留；可运行 nightly 重试整合。"
+            )
         if report.node_ids:
             ids = sorted(set(report.node_ids))
             print(f"  涉及节点 id：{ids}")
@@ -355,6 +403,12 @@ def main(argv: list[str] | None = None) -> int:
                 "  查看：python -m backend.node_edit --id <id> --show"
             )
     print(f"\n共处理 {total_chunks} 块。")
+    if failed_files or failed_chunks:
+        print(
+            f"未完全成功：{failed_files} 个文件读取失败，"
+            f"{failed_chunks} 块整合失败。"
+        )
+        return 1
     return 0
 
 

@@ -203,6 +203,9 @@ python -m backend.node_edit --id 3 --delete
   - 文件可以位于任意目录；`--pick` 打开系统文件选择器。
   - 文本 PDF 用 `pypdf` 提取；扫描版 PDF 没有文本层会提示先 OCR。
   - 文档按约 4000 字符切块，每块走脱敏 → segment → 整合。
+  - 导入专用云端超时为至少 90 秒，避免长公式页在 30 秒默认值下超时。
+  - 单块整合失败不会中断整份文档：失败块保留为 `processed = 0`，
+    后续块继续导入，最后由 `nightly` 重试。
   - `--defer` 只写入 segment，交给 `nightly`。
   - `--dry-run` 只提取/切块，不写库、不调用 LLM。
 
@@ -523,7 +526,7 @@ submit_feedback(node_id, card_type, feedback)
 | `test_screen_capture.py` | 归一化、敏感行、排除规则、屏幕入库/去重 |
 | `test_audio_capture.py` | 录音文本归一化、脱敏、跨音源去重、dry-run |
 
-当前共 **106** 个测试，全部使用 FakeLLM / 假 Umi 服务 / 临时数据库，不访问网络。
+当前共 **108** 个测试，全部使用 FakeLLM / 假 Umi 服务 / 临时数据库，不访问网络。
 
 ### 6.3 文档与配置
 
@@ -637,7 +640,7 @@ python -m pytest -q
 - 录音：TTS WAV → Vosk 转写 → 脱敏 → `segment(source='microphone')`
   → `nightly` 建节点 → 生成卡片。
 - 桌宠：缓存完整时约 12 ms 加载，无云端请求；缓存缺失时本地模板先显示。
-- 测试：**106 passed**。
+- 测试：**108 passed**。
 
 ---
 
@@ -657,7 +660,7 @@ python -m pytest -q
 - 集中式 PyQt6 控制中心
 - PyQt6 复习伙伴（缓存优先、后台补题、日期栏、控制中心风格卡片）
 - 本地脱敏、占位符映射、敏感行丢弃
-- 106 个离线测试
+- 108 个离线测试
 
 ### 9.2 未实现 / 后续路线
 

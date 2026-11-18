@@ -143,3 +143,81 @@ def test_import_file_consolidates_with_llm(conn, tmp_path):
         row["processed"] == 1
         for row in conn.execute("SELECT processed FROM segment")
     )
+
+
+class FailsOnceLLM(FakeLLM):
+    """在第 fail_at 次云端调用时模拟一次超时。"""
+
+    def __init__(self, fail_at: int = 4):
+        super().__init__()
+        self.fail_at = fail_at
+
+    def complete_json(self, *args, **kwargs):
+        self.calls += 1
+        if self.calls == self.fail_at:
+            raise RuntimeError("模拟云端超时")
+        if self.calls % 2 == 1:
+            return {
+                "summary": "导入摘要",
+                "topics": [],
+                "candidates": [
+                    {
+                        "type": "fact",
+                        "title": "导入的知识",
+                        "content": "来自导入文件的内容",
+                        "importance": 0.7,
+                    }
+                ],
+            }
+        return {
+            "decisions": [
+                {"candidate_index": 0, "action": "create"}
+            ]
+        }
+
+
+def test_import_file_continues_after_llm_failure(conn, tmp_path):
+    path = tmp_path / "notes.txt"
+    path.write_text(
+        "第一段内容甲。\n\n第二段内容乙。",
+        encoding="utf-8",
+    )
+    llm = FailsOnceLLM()
+
+    report = import_file(
+        conn, llm, path, date_str="2026-11-13", max_chars=10
+    )
+
+    assert report.chunks == 2
+    assert report.segments == 2
+    assert len(report.errors) == 1
+    assert "第 2/2 块整合失败" in report.errors[0]
+    assert report.to_dict()["errors"] == report.errors
+    assert conn.execute("SELECT COUNT(*) AS c FROM node").fetchone()["c"] >= 1
+    pending = conn.execute(
+        "SELECT COUNT(*) AS c FROM segment WHERE processed = 0"
+    ).fetchone()["c"]
+    assert pending == 1
+
+
+def test_import_file_clears_error_when_later_chunk_recovers(conn, tmp_path):
+    path = tmp_path / "notes.txt"
+    path.write_text(
+        "第一段内容甲。\n\n第二段内容乙。",
+        encoding="utf-8",
+    )
+    llm = FailsOnceLLM(fail_at=2)
+
+    report = import_file(
+        conn, llm, path, date_str="2026-11-13", max_chars=10
+    )
+
+    assert report.chunks == 2
+    assert report.segments == 2
+    assert report.errors == []
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) AS c FROM segment WHERE processed = 0"
+        ).fetchone()["c"]
+        == 0
+    )

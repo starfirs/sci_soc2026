@@ -522,7 +522,7 @@ LLM 出题失败时会写入本地模板卡片，并在输出的 `errors` 里给
 python -m pytest -q
 ```
 
-测试使用假 LLM / 假 Umi-OCR 服务 / 临时引擎目录，不消耗 API。当前 106 个测试。
+测试使用假 LLM / 假 Umi-OCR 服务 / 临时引擎目录，不消耗 API。当前 108 个测试。
 
 ### 8.7 节点编辑
 
@@ -612,6 +612,10 @@ PDF 不需要复制到项目目录：路径可以是任意绝对路径或相对�
   `pipeline.ingest_text`：本地脱敏 → `segment(source='import')` → 整合。
 - 默认立即调用 LLM 整合；`--defer` 不调用 LLM，等 `nightly`。
 - 文本 PDF 用 `pypdf` 提取；扫描版 PDF 没有文本层，会提示先 OCR。
+- 导入使用至少 90 秒的云端超时（普通功能仍是 30 秒），长公式页不会轻易超时。
+- 某一块整合失败不会中断整份文档：该块已写入的 `segment` 保持未处理状态，
+  后续块继续导入；命令结束会提示失败块数。之后运行
+  `python -m backend.nightly` 即可重试这些片段。
 - DOCX 直接读 `word/document.xml`，不需要额外依赖。
 - 导入的文本同样经过手机号/邮箱/身份证/姓名脱敏。
 - 导入完成会打印本次涉及的节点 id；用
@@ -781,7 +785,7 @@ backend/
   import_doc.py      PDF/DOCX/TXT/Markdown 导入与切块
   control_center.py  集中式 PyQt6 控制中心
   llm.py             DeepSeek HTTP 客户端
-tests/               106 个测试，使用 FakeLLM / 假 Umi 服务
+tests/               108 个测试，使用 FakeLLM / 假 Umi 服务
 data/                本地数据库、屏幕排除规则（gitignored）
 models/              本地 Vosk 模型（gitignored）
 ```

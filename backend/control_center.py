@@ -87,24 +87,29 @@ class ImportWorker(QThread):
     def run(self) -> None:
         conn = connect(self.db_path)
         lines: list[str] = []
+        errors: list[str] = []
         try:
-            llm = (
-                None
-                if self.defer
-                else DeepSeekClient(get_llm_config())
-            )
+            llm = None if self.defer else import_doc.make_import_llm()
             for path in self.files:
-                report = import_doc.import_file(
-                    conn,
-                    llm,
-                    path,
-                    defer=self.defer,
-                )
+                try:
+                    report = import_doc.import_file(
+                        conn,
+                        llm,
+                        path,
+                        defer=self.defer,
+                    )
+                except Exception as exc:
+                    errors.append(f"{path.name}: {exc}")
+                    lines.append(f"{path.name}: 失败")
+                    continue
                 lines.append(
                     f"{path.name}: {report.segments} 段，"
                     f"新建 {report.created}，合并 {report.merged}"
                 )
-            self.done.emit("\n".join(lines), "")
+                errors.extend(
+                    f"{path.name}: {message}" for message in report.errors
+                )
+            self.done.emit("\n".join(lines), "\n".join(errors))
         except Exception as exc:
             self.done.emit("\n".join(lines), str(exc))
         finally:
