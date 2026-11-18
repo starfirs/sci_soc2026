@@ -13,8 +13,8 @@ import sys
 from ctypes import wintypes
 from datetime import date as Date
 
-from PyQt6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QGuiApplication, QPainter, QPen, QRadialGradient
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QFont, QGuiApplication
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -62,11 +62,6 @@ CARD_TYPE_LABELS = {
     "scenario": "情景重现",
     "relation": "关联提问",
 }
-FEEDBACK_MOODS = {
-    "remembered": "happy",
-    "fuzzy": "idle",
-    "forgot": "sad",
-}
 IMPORTANCE_ORDER = ("very_high", "high", "normal", "low")
 IMPORTANCE_LABELS = {
     "very_high": "很重要",
@@ -81,6 +76,15 @@ TYPE_LABELS = {
     "concept": "概念",
     "todo": "待办",
 }
+WEEKDAY_NAMES = (
+    "星期一",
+    "星期二",
+    "星期三",
+    "星期四",
+    "星期五",
+    "星期六",
+    "星期日",
+)
 
 
 def importance_key(importance: float) -> str:
@@ -514,113 +518,6 @@ class ScreenshotWorker(QThread):
             self.done.emit(False, str(exc))
 
 
-class PetFace(QWidget):
-    """用 QPainter 画一个简单的小脸，避免依赖图片资源。"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(190, 190)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._mood = "idle"
-        self._bob = 0
-        self._step = 1
-        timer = QTimer(self)
-        timer.timeout.connect(self._animate)
-        timer.start(90)
-
-    def set_mood(self, mood: str) -> None:
-        self._mood = mood
-        self.update()
-
-    def _animate(self) -> None:
-        self._bob += self._step
-        if self._bob >= 3 or self._bob <= -3:
-            self._step *= -1
-        self.update()
-
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt 命名
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        width, height = self.width(), self.height()
-        cx, cy = width / 2, height / 2 + self._bob
-        s = min(width, height) / 150.0
-
-        gradient = QRadialGradient(
-            QPointF(cx - 18 * s, cy - 22 * s), 90 * s
-        )
-        gradient.setColorAt(0.0, QColor("#d9f0ff"))
-        gradient.setColorAt(1.0, QColor("#6aaee6"))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(gradient))
-        painter.drawEllipse(QPointF(cx, cy), 58 * s, 52 * s)
-
-        painter.setPen(
-            QPen(
-                QColor("#17384f"),
-                max(2.0, 5 * s),
-                Qt.PenStyle.SolidLine,
-                Qt.PenCapStyle.RoundCap,
-            )
-        )
-        painter.setBrush(QColor("#17384f"))
-
-        if self._mood == "happy":
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawArc(
-                QRectF(cx - 34 * s, cy - 22 * s, 26 * s, 20 * s),
-                20 * 16,
-                140 * 16,
-            )
-            painter.drawArc(
-                QRectF(cx + 8 * s, cy - 22 * s, 26 * s, 20 * s),
-                20 * 16,
-                140 * 16,
-            )
-            painter.drawArc(
-                QRectF(cx - 16 * s, cy + 8 * s, 32 * s, 22 * s),
-                200 * 16,
-                140 * 16,
-            )
-        elif self._mood == "sad":
-            painter.drawEllipse(
-                QPointF(cx - 20 * s, cy - 6 * s), 6 * s, 8 * s
-            )
-            painter.drawEllipse(
-                QPointF(cx + 20 * s, cy - 6 * s), 6 * s, 8 * s
-            )
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawArc(
-                QRectF(cx - 16 * s, cy + 20 * s, 32 * s, 18 * s),
-                200 * 16,
-                140 * 16,
-            )
-        elif self._mood == "thinking":
-            painter.drawEllipse(
-                QPointF(cx - 20 * s, cy - 12 * s), 6 * s, 7 * s
-            )
-            painter.drawEllipse(
-                QPointF(cx + 20 * s, cy - 12 * s), 6 * s, 7 * s
-            )
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(QPointF(cx, cy + 14 * s), 5 * s, 5 * s)
-        else:
-            painter.drawEllipse(
-                QPointF(cx - 20 * s, cy - 8 * s), 6 * s, 8 * s
-            )
-            painter.drawEllipse(
-                QPointF(cx + 20 * s, cy - 8 * s), 6 * s, 8 * s
-            )
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawArc(
-                QRectF(cx - 16 * s, cy + 8 * s, 32 * s, 22 * s),
-                200 * 16,
-                140 * 16,
-            )
-
-        painter.end()
-
-
 class DesktopPet(QWidget):
     def __init__(
         self,
@@ -696,7 +593,6 @@ class DesktopPet(QWidget):
                 self.status.setText(f"OCR 不可用：{exc}")
                 self.status.setToolTip(str(exc))
                 return
-        self.face.set_mood("thinking")
         self.status.setText("正在识别手动截图…")
         worker = ScreenshotWorker(
             self.db_path, pngs, self._manual_engine
@@ -708,7 +604,6 @@ class DesktopPet(QWidget):
 
     def _on_screenshot_done(self, ok: bool, message: str) -> None:
         self._screenshot_worker = None
-        self.face.set_mood("happy" if ok else "sad")
         self.status.setText(
             "手动截图处理完成，等待夜间整合"
             if ok
@@ -720,6 +615,15 @@ class DesktopPet(QWidget):
 
     # ---------- 界面搭建 ----------
 
+    @staticmethod
+    def _today_text() -> str:
+        today = Date.today()
+        return f"{today.isoformat()} · {WEEKDAY_NAMES[today.weekday()]}"
+
+    def _refresh_date(self) -> None:
+        if hasattr(self, "date_label"):
+            self.date_label.setText(self._today_text())
+
     def _setup_window(self) -> None:
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -728,7 +632,7 @@ class DesktopPet(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setWindowTitle("AI 记忆伙伴")
-        self.setFixedSize(440, 640)
+        self.setFixedSize(480, 520)
 
     def _make_button(self, text: str, color: str, text_color: str = "#ffffff") -> QPushButton:
         button = QPushButton(text)
@@ -748,9 +652,9 @@ class DesktopPet(QWidget):
         card = QFrame(self)
         card.setObjectName("card")
         card.setStyleSheet(
-            "#card { background-color: rgba(255, 255, 255, 240);"
-            " border: 1px solid rgba(120, 160, 200, 100);"
-            " border-radius: 20px; }"
+            "#card { background-color: #ffffff;"
+            " border: 1px solid #d7e3ee;"
+            " border-radius: 16px; }"
         )
         root.addWidget(card)
 
@@ -759,10 +663,21 @@ class DesktopPet(QWidget):
         layout.setSpacing(10)
 
         header = QHBoxLayout()
+        header_left = QVBoxLayout()
+        header_left.setSpacing(1)
         title = QLabel("记忆伙伴")
-        title.setFont(QFont("Microsoft YaHei", 11, QFont.Weight.Bold))
-        title.setStyleSheet("color: #4a6a85;")
+        title.setFont(QFont("Microsoft YaHei", 12, QFont.Weight.Bold))
+        title.setStyleSheet("color: #1c2b36;")
         title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.date_label = QLabel(self._today_text())
+        self.date_label.setStyleSheet(
+            "color: #6b8299; font-size: 12px;"
+        )
+        self.date_label.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
+        header_left.addWidget(title)
+        header_left.addWidget(self.date_label)
         self.close_btn = QPushButton("×")
         self.close_btn.setFixedSize(28, 28)
         self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -771,13 +686,15 @@ class DesktopPet(QWidget):
             " color: #7a93a8; font-size: 18px; }"
             "QPushButton:hover { color: #d9534f; }"
         )
-        header.addWidget(title)
+        header.addLayout(header_left)
         header.addStretch()
         header.addWidget(self.close_btn)
         layout.addLayout(header)
 
-        self.face = PetFace()
-        layout.addWidget(self.face, alignment=Qt.AlignmentFlag.AlignHCenter)
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("color: #e6eef6;")
+        layout.addWidget(separator)
 
         self.status = QLabel("正在读取今天的记忆…")
         self.status.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -805,6 +722,12 @@ class DesktopPet(QWidget):
             "color: #1c2b36; font-size: 16px; font-weight: 600;"
         )
         bubble_layout.addWidget(self.question)
+
+        self.hint = QLabel("先自己回忆，再点“显示答案”。")
+        self.hint.setStyleSheet(
+            "color: #8aa0b4; font-size: 12px;"
+        )
+        bubble_layout.addWidget(self.hint)
 
         self.importance_row = QWidget()
         importance_layout = QHBoxLayout(self.importance_row)
@@ -912,15 +835,16 @@ class DesktopPet(QWidget):
     def reload(self) -> None:
         if self._worker is not None and self._worker.isRunning():
             return
+        self._refresh_date()
         self.warning = ""
         self._cloud_pending = False
-        self.face.set_mood("thinking")
         self.status.setToolTip("")
         self.status.setText("思考中…正在生成今天的复习卡片")
         self.question.setText("稍等一下，我在整理今天的记忆。")
         self.answer.hide()
         self.reveal_btn.hide()
         self.feedback_widget.hide()
+        self.hint.hide()
         self.importance_row.hide()
         self.edit_btn.hide()
         self.skip_btn.hide()
@@ -949,7 +873,6 @@ class DesktopPet(QWidget):
         if not cards:
             self._show_empty()
             return
-        self.face.set_mood("idle")
         self._show_card()
 
     def _on_loaded(self, cards, warning: str) -> None:
@@ -966,12 +889,10 @@ class DesktopPet(QWidget):
             self._refresh_status()
             return
         self.controller.set_cards(cards)
-        self.face.set_mood("idle")
         self._show_card()
 
     def _show_empty(self) -> None:
         self._cloud_pending = False
-        self.face.set_mood("idle")
         self.status.setText("今天没有到期的记忆")
         self.question.setText("休息一下，明天见。")
         self._show_idle_controls()
@@ -1036,15 +957,16 @@ class DesktopPet(QWidget):
         self.answer.hide()
         self.reveal_btn.hide()
         self.feedback_widget.hide()
+        self.hint.hide()
         self.importance_row.hide()
         self.edit_btn.hide()
         self.skip_btn.hide()
         self.reload_btn.show()
 
     def _show_card(self) -> None:
+        self._refresh_date()
         card = self.controller.current
         if card is None:
-            self.face.set_mood("happy")
             self.status.setText("今天的复习完成了")
             self.question.setText("全部完成，明天见。")
             self._show_idle_controls()
@@ -1052,6 +974,7 @@ class DesktopPet(QWidget):
 
         self._refresh_status()
         self.question.setText(card.question)
+        self.hint.show()
         self._refresh_importance_buttons(card.importance)
         self.importance_row.show()
         self.answer.setText(card.answer)
@@ -1061,13 +984,13 @@ class DesktopPet(QWidget):
         self.edit_btn.show()
         self.skip_btn.show()
         self.reload_btn.hide()
-        self.face.set_mood("idle")
 
     def _reveal(self) -> None:
         card = self.controller.current
         if card is None:
             return
         self.controller.reveal()
+        self.hint.hide()
         self.answer.setText(card.answer)
         self.answer.show()
         self.reveal_btn.hide()
@@ -1077,10 +1000,10 @@ class DesktopPet(QWidget):
         result = self.controller.feedback(value)
         if result is None:
             return
-        self.face.set_mood(FEEDBACK_MOODS.get(value, "idle"))
         self.status.setText(f"已记录，下次复习：{result.due_at}")
         self.answer.hide()
         self.feedback_widget.hide()
+        self.hint.hide()
         self.importance_row.hide()
         self.reveal_btn.hide()
         self.edit_btn.hide()

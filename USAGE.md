@@ -450,6 +450,9 @@ python -m backend.desktop_pet --smoke-test --screenshot shot.png
 | `--db` | 数据库路径 |
 | `--limit` | 最多几张 |
 | `--smoke-test` | 强制离线并自动退出，用于 UI 验证 |
+
+复习伙伴顶部显示当前日期，采用和控制中心一致的浅色卡片风格；
+不再显示原来的动态小脸。
 | `--screenshot` | 保存窗口截图 |
 
 桌宠优先读 `daily_card`；缓存完整时不会发网络请求。缓存缺失时先显示

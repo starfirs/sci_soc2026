@@ -489,7 +489,7 @@ submit_feedback(node_id, card_type, feedback)
 | `nightly.py` | 夜间编排 | `run_nightly`；逐日整合；生成次日卡片；`NightlyReport` |
 | `review_cli.py` | 命令行复习 | 题目 → 答案 → 1/2/3 反馈；`--list`/`--offline` |
 | `pet_controller.py` | 桌宠纯状态机 | `PetController.load/current/reveal/feedback/skip/set_importance/delete_current/progress`，不依赖 Qt |
-| `desktop_pet.py` | PyQt6 桌宠 | `CardWorker`；`EditWorker`；`EditNodeDialog`；`HotkeyWorker`；`ScreenshotWorker`；`PetFace`；`DesktopPet`；缓存优先、后台补题；重要度/修改/删除/手动截图 |
+| `desktop_pet.py` | PyQt6 复习伙伴 | `CardWorker`；`EditWorker`；`EditNodeDialog`；`HotkeyWorker`；`ScreenshotWorker`；`DesktopPet`；日期栏、控制中心风格卡片；缓存优先、后台补题；重要度/修改/删除/手动截图 |
 | `demo.py` | 演示数据 | 重建 `data/demo_start.db`，写入 3 个今日到期节点和卡片 |
 | `screen_capture.py` | 屏幕读取 | 前台窗口客户区；aHash；私有 OCR（Umi/Windows 备用）；排除规则；`ScreenReader`；CLI |
 | `local_ocr.py` | 私有 OCR 引擎 | 启动 PaddleOCR-json/RapidOCR-json 子进程；stdin/stdout JSON；mkldnn；CLI |
@@ -654,7 +654,7 @@ python -m pytest -q
 - 节点编辑接口：直接字段修改 + LLM 自然语言改写
 - 手动截图快捷键与 PDF/DOCX/TXT/Markdown 导入
 - 集中式 PyQt6 控制中心
-- PyQt6 桌宠（缓存优先、后台补题、状态表情）
+- PyQt6 复习伙伴（缓存优先、后台补题、日期栏、控制中心风格卡片）
 - 本地脱敏、占位符映射、敏感行丢弃
 - 106 个离线测试
 
