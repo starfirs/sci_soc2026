@@ -205,6 +205,17 @@ python -m backend.node_edit --id 3 --delete
   - `--defer` 只写入 segment，交给 `nightly`。
   - `--dry-run` 只提取/切块，不写库、不调用 LLM。
 
+### 2.8 控制中心
+
+`python -m backend.control_center` 或双击 `start_center.bat` 打开集中界面：
+
+- **概览**：节点/到期/待整合/卡片统计；打开桌宠、手动输入、导入、nightly。
+- **记忆库**：搜索、表格、详情、编辑/删除；复用 AI 改写对话框。
+- **采集**：屏幕读取启停（引擎/间隔/整屏）、录音启停、手动截图、音频设备。
+- **功能说明**：集成能力与使用顺序。
+
+屏幕/录音在控制中心里作为后台 `QProcess` 运行，关闭窗口会停止。
+
 ---
 
 ## 3. 总体架构
@@ -487,6 +498,7 @@ submit_feedback(node_id, card_type, feedback)
 | `audio_capture.py` | 录音链路 | `soundcard` 麦克风/回环；Vosk；`CaptureWorker`；`transcribe_wav`；CLI |
 | `node_edit.py` | 节点编辑接口 | `update_node`；`edit_node_with_llm`；`edit_node`；`node_detail`；CLI |
 | `import_doc.py` | 文档导入 | `extract_text`；`split_text`；`import_file`；PDF/DOCX/TXT/MD |
+| `control_center.py` | 集中控制中心 | 概览统计、记忆库、采集进程、导入、nightly、功能说明 |
 | `llm.py` | 云端 LLM | `DeepSeekClient`（stdlib `urllib` HTTP）；`LLMError`；`parse_json` |
 | `memory_graph.py` | 旧原型（不要扩展） | networkx + JSON，schema 与设计不一致 |
 | `test.py` | 旧原型脚本（不要扩展） | 旧版演示 |
@@ -518,8 +530,9 @@ submit_feedback(node_id, card_type, feedback)
 |---|---|
 | `README.md` | 项目简介、进度、速查命令、一键启动、每日流程 |
 | `USAGE.md` | 完整安装/配置/命令/屏幕/录音/隐私/故障排查 |
-| `start.bat` | Windows 一键菜单：桌宠/演示/屏幕/录音/测试/文档 |
+| `start.bat` | Windows 一键菜单：桌宠/演示/采集/导入/记忆库/nightly/控制中心 |
 | `start_demo.bat` | 直接重建演示库并打开桌宠 |
+| `start_center.bat` | 直接打开集中控制中心 |
 | `read1.md` | 本文：最终架构、信息流、文件和功能说明 |
 | `CLAUDE.md` | 给 Claude Code 的开发约束、命令和架构摘要 |
 | `requirements.txt` | Python 依赖：dotenv、networkx、pytest、PyQt6、WinRT OCR、soundcard/numpy/vosk |
@@ -640,6 +653,7 @@ python -m pytest -q
 - 重要度标记（很重要/重要/一般/不重要）与“不重要”节点删除
 - 节点编辑接口：直接字段修改 + LLM 自然语言改写
 - 手动截图快捷键与 PDF/DOCX/TXT/Markdown 导入
+- 集中式 PyQt6 控制中心
 - PyQt6 桌宠（缓存优先、后台补题、状态表情）
 - 本地脱敏、占位符映射、敏感行丢弃
 - 106 个离线测试

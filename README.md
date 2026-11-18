@@ -12,6 +12,7 @@ AI 记忆增强伙伴（课程项目）。完整设计见 `AI 记忆增强伙伴
 - **重要度与删除（已实现）**：复习时可标记“很重要 / 重要 / 一般 / 不重要”；标为不重要会移出复习，并可确认删除该记忆。
 - **节点编辑接口（已实现）**：桌宠卡片下方有“修改”按钮，可直接改标题/内容/类型/重要度，也可以填写要求让 LLM 改写后提交；输入输出都经过本地脱敏。
 - **手动截图与文档导入（已实现）**：桌宠运行时按 `Ctrl+Alt+E` 手动读当前窗口；可导入 PDF/DOCX/TXT/Markdown 并整合成记忆节点。
+- **集中控制中心（已实现）**：PyQt6 主界面集中查看统计、记忆库、采集开关、导入、夜间任务和功能说明。
 - **次日卡片预生成（已实现）**：夜间整合未处理片段并把明天的题写入本地 `daily_card`，桌宠次日直接读缓存。
 - **屏幕读取基础版（已实现）**：默认只读当前前台窗口，项目私有 PaddleOCR-json/RapidOCR-json 引擎（Paddle 启用 MKL-DNN）、变化检测、敏感行丢弃，脱敏后写入 `segment(source='screen')`；不需要用户运行 Umi-OCR。
 - **录音链路基础版（已实现）**：麦克风 + 系统声音回环 → Vosk 本地转写 → 脱敏 → 写入 `segment(source='microphone'/'system')`，音频只在内存中。
@@ -97,6 +98,9 @@ python -m backend.audio_capture --once --seconds 10
 python -m backend.audio_capture --source both       # 麦克风 + 系统声音
 python -m backend.audio_capture --source system     # 只看系统声音
 
+# 集中控制中心
+python -m backend.control_center
+
 # 运行测试（测试使用假 LLM，不消耗 API）
 python -m pytest -q
 ```
@@ -116,12 +120,15 @@ python -m pytest -q
 7. 导入 PDF/DOCX/TXT/Markdown（文件选择器，可选任意位置）
 8. 查看记忆节点（可继续输入 id 看详情）
 9. 运行 nightly（整合片段 + 生成次日卡片）
+10. 打开控制中心（功能最完整的管理界面）
 
 只想快速看效果，直接双击 `start_demo.bat`：它会重建
 `data/demo_start.db`（不会碰真实库）并打开桌宠。
 
 桌宠运行时按 `Ctrl+Alt+E` 可以对当前窗口做一次手动 OCR 截图；
 也可以右键桌宠选择“手动截图”。
+
+也可以直接双击 `start_center.bat` 打开控制中心。
 
 ## 每日使用顺序
 

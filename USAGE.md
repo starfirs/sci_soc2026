@@ -17,6 +17,7 @@
 - 节点查看/编辑：直接改标题、内容、类型、重要度、状态，或让 LLM 按自然语言改写
 - 手动截图：桌宠运行时按 `Ctrl+Alt+E`，走本地 OCR/脱敏后写入屏幕片段
 - 文档导入：PDF/DOCX/TXT/Markdown 提取文本后整合成记忆
+- 集中控制中心：统计、记忆库、采集开关、导入、夜间任务和功能说明
 
 还没实现：
 
@@ -148,6 +149,7 @@ print([m['id'] for m in json.load(urllib.request.urlopen(req))['data']])
 7. 导入 PDF/DOCX/TXT/Markdown（打开文件选择器，可选任意位置）
 8. 查看记忆节点列表，并可输入 id 查看详情
 9. 运行 nightly：整合未处理片段并生成次日卡片
+10. 打开控制中心：统计/记忆库/采集/功能说明的集中界面
 
 只想立即看桌宠效果，双击 `start_demo.bat`。它只重建
 `data/demo_start.db`，不会修改真实 `data/memory.db`。
@@ -156,7 +158,27 @@ print([m['id'] for m in json.load(urllib.request.urlopen(req))['data']])
 “手动截图”菜单项。截图会走屏幕读取的排除规则、本地 OCR 和脱敏，
 写入 `segment(source='screen')`，等待夜间整合。
 
-### 4.2 命令行
+### 4.2 控制中心
+
+双击 `start_center.bat` 或运行：
+
+```bash
+python -m backend.control_center
+```
+
+界面包含四个页签：
+
+- **概览**：记忆节点数、今日到期、待整合片段、今日/次日卡片；
+  快捷按钮可打开桌宠、手动输入、导入文档、运行 nightly。
+- **记忆库**：搜索节点、表格浏览、查看详情、编辑/删除；
+  编辑复用桌宠里的 AI 改写对话框。
+- **采集**：启停屏幕读取（OCR 引擎/间隔/整屏）、启停录音、
+  手动截图一次、查看音频设备。
+- **功能说明**：已实现能力、使用顺序和文档入口。
+
+采集进程由控制中心管理；关闭窗口时会停止它们。
+
+### 4.3 命令行
 
 ```bash
 # 1. 粘贴一段今天的笔记，脱敏后整合进记忆图
@@ -537,7 +559,19 @@ edit_node(conn, 3, instruction="改得更简洁", llm=client)
 - 重要度低于 0.3 或状态不是 `active` 时自动移出复习。
 - 删除节点会级联删除相关边、复习记录和缓存卡片，不可恢复。
 
-### 8.8 文档导入
+### 8.8 控制中心
+
+```bash
+python -m backend.control_center
+```
+
+| 参数 | 说明 |
+|---|---|
+| `--db` | 数据库路径 |
+| `--smoke-test` | 启动后自动退出，用于界面验证 |
+| `--screenshot` | 配合 smoke-test 保存窗口截图 |
+
+### 8.9 文档导入
 
 支持 `.pdf`、`.docx`、`.txt`、`.md` / `.markdown`：
 
@@ -734,6 +768,7 @@ backend/
   audio_capture.py   麦克风/系统声音 + Vosk 转写
   node_edit.py       节点查看、直接编辑、LLM 自然语言改写
   import_doc.py      PDF/DOCX/TXT/Markdown 导入与切块
+  control_center.py  集中式 PyQt6 控制中心
   llm.py             DeepSeek HTTP 客户端
 tests/               106 个测试，使用 FakeLLM / 假 Umi 服务
 data/                本地数据库、屏幕排除规则（gitignored）

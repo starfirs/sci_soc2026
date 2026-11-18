@@ -36,10 +36,11 @@ echo   6. Open USAGE.md
 echo   7. Import PDF/DOCX/TXT/MD
 echo   8. List / view memory nodes
 echo   9. Run nightly (consolidate + next cards)
+echo  10. Open control center
 echo   0. Exit
 echo.
 set "CHOICE="
-set /p CHOICE=Select [0-9]:
+set /p CHOICE=Select [0-10]:
 if "%CHOICE%"=="1" goto pet
 if "%CHOICE%"=="2" goto demo
 if "%CHOICE%"=="3" goto screen
@@ -49,6 +50,7 @@ if "%CHOICE%"=="6" goto docs
 if "%CHOICE%"=="7" goto import
 if "%CHOICE%"=="8" goto memories
 if "%CHOICE%"=="9" goto nightly
+if "%CHOICE%"=="10" goto center
 if "%CHOICE%"=="0" goto end
 goto menu
 
@@ -95,6 +97,10 @@ goto menu
 :nightly
 "%PY%" -m backend.nightly
 pause
+goto menu
+
+:center
+call "%~dp0start_center.bat"
 goto menu
 
 :end
